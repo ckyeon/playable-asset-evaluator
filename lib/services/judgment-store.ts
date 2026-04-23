@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db/client";
 import { decisionLabelSchema } from "@/lib/model/evaluation-schema";
+import { manualFitScore } from "@/lib/services/manual-fit-score";
 import type {
   CandidateImage,
   ConfidenceState,
@@ -143,16 +144,6 @@ export class JudgmentStore {
         : null
     };
   }
-}
-
-function manualFitScore(decisionLabel: DecisionLabel): number {
-  if (decisionLabel === "good") {
-    return 86;
-  }
-  if (decisionLabel === "needs_edit") {
-    return 64;
-  }
-  return 28;
 }
 
 function refreshStyleSummary(styleProfileId: string): void {

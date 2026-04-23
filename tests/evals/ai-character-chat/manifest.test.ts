@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
+import { parseEvalManifest } from "@/lib/evals/manifest-schema";
 import manifest from "./manifest.json";
 
 const datasetDir = path.join(process.cwd(), "tests/evals/ai-character-chat");
@@ -10,35 +11,42 @@ const allowedExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
 describe("AI Character Chat character asset baseline", () => {
   it("is a ready human-labeled style-match dataset", async () => {
-    expect(manifest.name).toBe("AI Character Chat character asset baseline");
-    expect(manifest.status).toBe("ready");
-    expect(manifest.asset_focus).toBe("character");
-    expect(manifest.evaluation_goal).toBe("style_match");
-    expect(manifest.source_prompt.language).toBe("ko");
-    expect(manifest.source_prompt.text).toContain("캐릭터 이미지를 각 감정별로 생성해줘.");
-    expect(manifest.source_prompt.requested_emotions).toHaveLength(8);
-    expect(manifest.source_prompt.constraints).toHaveLength(3);
-    expect(manifest.references).toHaveLength(8);
-    expect(manifest.candidates).toHaveLength(10);
+    const parsed = parseEvalManifest(manifest);
+    const context = parsed.contexts[0];
+    expect(parsed.name).toBe("AI Character Chat character asset baseline");
+    expect(parsed.status).toBe("ready");
+    expect(parsed.asset_focus).toBe("character");
+    expect(parsed.evaluation_goal).toBe("style_match");
+    expect(typeof context.source_prompt).toBe("object");
+    expect(context.source_prompt && typeof context.source_prompt !== "string" ? context.source_prompt.language : null).toBe("ko");
+    expect(context.source_prompt && typeof context.source_prompt !== "string" ? context.source_prompt.text : "").toContain(
+      "캐릭터 이미지를 각 감정별로 생성해줘."
+    );
+    expect(
+      context.source_prompt && typeof context.source_prompt !== "string" ? context.source_prompt.requested_emotions : []
+    ).toHaveLength(8);
+    expect(context.source_assets).toHaveLength(8);
+    expect(context.candidates).toHaveLength(10);
 
     const labels = new Map<string, number>();
-    for (const candidate of manifest.candidates) {
+    for (const candidate of context.candidates) {
       labels.set(candidate.expected_decision, (labels.get(candidate.expected_decision) || 0) + 1);
     }
     expect(labels.get("good")).toBeGreaterThanOrEqual(2);
     expect(labels.get("needs_edit")).toBeGreaterThanOrEqual(3);
     expect(labels.get("reject")).toBeGreaterThanOrEqual(2);
 
-    for (const reference of manifest.references) {
-      expect(reference.note.length).toBeGreaterThan(40);
-      expect(reference.style_tags.length).toBeGreaterThanOrEqual(3);
-      await expectValidImage(reference.image_path);
+    for (const sourceAsset of context.source_assets) {
+      expect(sourceAsset.asset_type).toBe("character");
+      expect((sourceAsset.note || "").length).toBeGreaterThan(40);
+      expect(sourceAsset.style_tags?.length).toBeGreaterThanOrEqual(3);
+      await expectValidImage(sourceAsset.image_path);
     }
 
-    for (const candidate of manifest.candidates) {
+    for (const candidate of context.candidates) {
       expect(allowedDecisions.has(candidate.expected_decision)).toBe(true);
       expect(candidate.human_reason.length).toBeGreaterThan(40);
-      expect(candidate.fit_tags.length).toBeGreaterThanOrEqual(2);
+      expect(candidate.fit_tags?.length).toBeGreaterThanOrEqual(2);
       expect(Array.isArray(candidate.risk_tags)).toBe(true);
       expect(typeof candidate.prompt_missing).toBe("boolean");
       await expectValidImage(candidate.image_path);

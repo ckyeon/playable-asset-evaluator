@@ -11,7 +11,8 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
-    "eval:test": "vitest run tests/evals"
+    "eval:test": "vitest run tests/evals",
+    "eval:import": "tsx scripts/eval-import.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1",
@@ -30,6 +31,7 @@
     "@types/react-dom": "^19.0.3",
     "eslint": "^9.20.0",
     "eslint-config-next": "^15.1.7",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }
