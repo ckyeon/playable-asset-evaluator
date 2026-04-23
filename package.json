@@ -1,0 +1,36 @@
+{
+  "name": "asset-evaluator",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "eval:test": "vitest run tests/evals"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "lucide-react": "^0.475.0",
+    "next": "^15.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sharp": "^0.33.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.1",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "eslint": "^9.20.0",
+    "eslint-config-next": "^15.1.7",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

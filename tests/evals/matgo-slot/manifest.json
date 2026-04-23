@@ -1,0 +1,27 @@
+{
+  "name": "Matgo -> Slot tiny eval baseline",
+  "status": "placeholder_assets_pending",
+  "note": "Replace image_path values with recovered NanoBanana2 outputs or regenerated equivalents before using this as a model-quality gate.",
+  "references": [
+    { "id": "ref-card-red", "asset_type": "card", "image_path": "assets/references/ref-card-red.png", "note": "Crisp red card face with readable mobile-game silhouette." },
+    { "id": "ref-card-gold", "asset_type": "card", "image_path": "assets/references/ref-card-gold.png", "note": "Gold card reward treatment that still feels Matgo-adjacent." },
+    { "id": "ref-coin", "asset_type": "coin_reward", "image_path": "assets/references/ref-coin.png", "note": "Bright coin reward with simple beveled mobile-game lighting." },
+    { "id": "ref-cta", "asset_type": "button_cta", "image_path": "assets/references/ref-cta.png", "note": "High-contrast CTA shape, compact and readable." },
+    { "id": "ref-slot-frame", "asset_type": "background_effect", "image_path": "assets/references/ref-slot-frame.png", "note": "Slot frame that does not overpower card-game identity." },
+    { "id": "ref-spark", "asset_type": "background_effect", "image_path": "assets/references/ref-spark.png", "note": "Celebratory sparkle with restrained casino energy." },
+    { "id": "ref-chip", "asset_type": "coin_reward", "image_path": "assets/references/ref-chip.png", "note": "Casino chip treatment with flat mobile-game readability." },
+    { "id": "ref-ribbon", "asset_type": "other", "image_path": "assets/references/ref-ribbon.png", "note": "Reward ribbon using red-gold palette and clean silhouette." }
+  ],
+  "candidates": [
+    { "id": "cand-01", "image_path": "assets/candidates/cand-01.png", "expected_decision": "good", "human_reason": "Matches red-gold palette and remains readable as a slot reward.", "prompt_missing": false },
+    { "id": "cand-02", "image_path": "assets/candidates/cand-02.png", "expected_decision": "needs_edit", "human_reason": "Direction is right, but lighting is too realistic for existing assets.", "prompt_missing": false },
+    { "id": "cand-03", "image_path": "assets/candidates/cand-03.png", "expected_decision": "reject", "human_reason": "Photoreal casino material breaks the Matgo-inspired mobile-game style.", "prompt_missing": false },
+    { "id": "cand-04", "image_path": "assets/candidates/cand-04.png", "expected_decision": "needs_edit", "human_reason": "Readable on mobile but needs stronger Korean card-game motifs.", "prompt_missing": true },
+    { "id": "cand-05", "image_path": "assets/candidates/cand-05.png", "expected_decision": "good", "human_reason": "Button and reward treatment are consistent with the reference set.", "prompt_missing": false },
+    { "id": "cand-06", "image_path": "assets/candidates/cand-06.png", "expected_decision": "reject", "human_reason": "Busy background would compete with CTA and gameplay objects.", "prompt_missing": false },
+    { "id": "cand-07", "image_path": "assets/candidates/cand-07.png", "expected_decision": "needs_edit", "human_reason": "Nice appeal, but crop and layer separation need production cleanup.", "prompt_missing": false },
+    { "id": "cand-08", "image_path": "assets/candidates/cand-08.png", "expected_decision": "good", "human_reason": "Clean silhouette and casino twist fit the playable's visual world.", "prompt_missing": false },
+    { "id": "cand-09", "image_path": "assets/candidates/cand-09.png", "expected_decision": "needs_edit", "human_reason": "Color is close but card shape readability is weak at small size.", "prompt_missing": true },
+    { "id": "cand-10", "image_path": "assets/candidates/cand-10.png", "expected_decision": "reject", "human_reason": "Character-like render distracts from slot-machine playable interaction.", "prompt_missing": false }
+  ]
+}

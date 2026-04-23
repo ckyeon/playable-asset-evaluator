@@ -1,0 +1,41 @@
+import { randomUUID } from "node:crypto";
+import { getDb } from "@/lib/db/client";
+import { errorResponse, ok } from "@/lib/api/responses";
+import type { StyleProfile } from "@/lib/types/domain";
+
+export const runtime = "nodejs";
+
+export async function GET() {
+  try {
+    const profiles = getDb()
+      .prepare("SELECT * FROM style_profiles ORDER BY updated_at DESC, created_at DESC")
+      .all() as StyleProfile[];
+    return ok({ profiles });
+  } catch (error) {
+    return errorResponse(error, 500);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as { name?: string; description?: string };
+    const name = body.name?.trim();
+    if (!name) {
+      throw new Error("Profile name is required.");
+    }
+
+    const id = randomUUID();
+    const sessionId = randomUUID();
+    const db = getDb();
+    db.transaction(() => {
+      db.prepare("INSERT INTO style_profiles (id, name, description, style_summary) VALUES (?, ?, ?, ?)")
+        .run(id, name, body.description?.trim() || null, "");
+      db.prepare("INSERT INTO evaluation_sessions (id, style_profile_id, name, source_context) VALUES (?, ?, ?, ?)")
+        .run(sessionId, id, "Default evaluation session", null);
+    })();
+
+    return ok({ profile: db.prepare("SELECT * FROM style_profiles WHERE id = ?").get(id) as StyleProfile }, { status: 201 });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
