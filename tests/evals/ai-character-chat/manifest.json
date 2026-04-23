@@ -1,0 +1,148 @@
+{
+  "name": "AI Character Chat character asset baseline",
+  "status": "ready",
+  "asset_focus": "character",
+  "evaluation_goal": "style_match",
+  "references": [
+    {
+      "id": "ref-01",
+      "image_path": "assets/references/ref-01-couch-hand-cover.png",
+      "note": "Defines the soft anime dating-chat heroine tone with shy body language, muted indoor lighting, and close emotional framing.",
+      "style_tags": ["soft_anime", "shy_expression", "indoor_couch", "blonde_braid", "white_blouse_black_ribbon"]
+    },
+    {
+      "id": "ref-02",
+      "image_path": "assets/references/ref-02-blushing-portrait.png",
+      "note": "Keeps the face, blush intensity, braid shape, and gentle rendering style consistent for close portrait crops.",
+      "style_tags": ["soft_anime", "portrait_crop", "blush", "same_character", "gentle_rendering"]
+    },
+    {
+      "id": "ref-03",
+      "image_path": "assets/references/ref-03-doorway-half-body.png",
+      "note": "Shows the same character in a narrative half-body scene while preserving restrained colors and soft lighting.",
+      "style_tags": ["soft_anime", "half_body", "narrative_scene", "muted_palette", "same_uniform"]
+    },
+    {
+      "id": "ref-04",
+      "image_path": "assets/references/ref-04-seated-chair.png",
+      "note": "Anchors the seated pose and delicate facial proportions that should survive generated variants.",
+      "style_tags": ["soft_anime", "seated_pose", "delicate_face", "same_character", "indoor_chair"]
+    },
+    {
+      "id": "ref-05",
+      "image_path": "assets/references/ref-05-seated-couch-angle.png",
+      "note": "Captures the slightly guarded pose and couch framing that make the character feel intimate but not over-dramatic.",
+      "style_tags": ["soft_anime", "guarded_pose", "couch_scene", "subtle_emotion", "same_uniform"]
+    },
+    {
+      "id": "ref-06",
+      "image_path": "assets/references/ref-06-outdoor-side-glance.png",
+      "note": "Provides an outdoor reference for the same character identity, hair shape, and uniform under brighter light.",
+      "style_tags": ["soft_anime", "outdoor_light", "side_glance", "blonde_braid", "same_character"]
+    },
+    {
+      "id": "ref-07",
+      "image_path": "assets/references/ref-07-annoyed-couch-crossed-arms.png",
+      "note": "Defines a stronger annoyed expression while keeping the same blush, outfit, and soft mobile-ad illustration style.",
+      "style_tags": ["soft_anime", "annoyed_expression", "crossed_arms", "couch_scene", "same_character"]
+    },
+    {
+      "id": "ref-08",
+      "image_path": "assets/references/ref-08-couch-close-reaction.png",
+      "note": "Adds a close reaction pose with consistent face design, braid placement, and indoor couch lighting.",
+      "style_tags": ["soft_anime", "reaction_pose", "close_crop", "indoor_couch", "same_character"]
+    }
+  ],
+  "candidates": [
+    {
+      "id": "cand-01",
+      "image_path": "assets/candidates/cand-01-nervous-clasped-hands.png",
+      "expected_decision": "good",
+      "human_reason": "The nervous clasped-hands pose matches the character identity, soft rendering, and reusable emotional expression set.",
+      "fit_tags": ["same_character", "nervous_expression", "clean_cutout", "style_match"],
+      "risk_tags": [],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-02",
+      "image_path": "assets/candidates/cand-02-neutral-standing.png",
+      "expected_decision": "needs_edit",
+      "human_reason": "The character identity is close, but the pose is too neutral and less emotionally specific for chat ad reactions.",
+      "fit_tags": ["same_uniform", "clean_cutout", "soft_anime"],
+      "risk_tags": ["weak_emotion", "generic_pose"],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-03",
+      "image_path": "assets/candidates/cand-03-relieved-smile.png",
+      "expected_decision": "good",
+      "human_reason": "The relieved smile preserves the shy heroine tone while giving a useful positive chat reaction asset.",
+      "fit_tags": ["same_character", "relieved_expression", "soft_lighting", "clean_cutout"],
+      "risk_tags": [],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-04",
+      "image_path": "assets/candidates/cand-04-crossed-arms.png",
+      "expected_decision": "needs_edit",
+      "human_reason": "The crossed-arms emotion is useful, but the body proportions and face feel a little flatter than the references.",
+      "fit_tags": ["annoyed_expression", "same_uniform", "clean_cutout"],
+      "risk_tags": ["proportion_drift", "face_softness_loss"],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-05",
+      "image_path": "assets/candidates/cand-05-awkward-head-scratch.png",
+      "expected_decision": "needs_edit",
+      "human_reason": "The awkward gesture works for chat reactions, but the pose needs cleaner silhouette separation for production use.",
+      "fit_tags": ["awkward_expression", "same_character", "soft_anime"],
+      "risk_tags": ["silhouette_clutter", "hand_pose_risk"],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-06",
+      "image_path": "assets/candidates/cand-06-annoyed-crossed-arms.png",
+      "expected_decision": "good",
+      "human_reason": "The annoyed expression, blush, braid, and uniform align well with the stronger-emotion references.",
+      "fit_tags": ["same_character", "annoyed_expression", "crossed_arms", "style_match"],
+      "risk_tags": [],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-07",
+      "image_path": "assets/candidates/cand-07-shy-hand-out.png",
+      "expected_decision": "needs_edit",
+      "human_reason": "The shy emotion fits the tone, but the extended arm and crop make it less clean as a reusable character asset.",
+      "fit_tags": ["shy_expression", "same_uniform", "soft_anime"],
+      "risk_tags": ["awkward_crop", "extended_arm_layout"],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-08",
+      "image_path": "assets/candidates/cand-08-shy-front-pose.png",
+      "expected_decision": "good",
+      "human_reason": "The front shy pose is clean, emotionally readable, and close to the reference character's outfit and face style.",
+      "fit_tags": ["same_character", "shy_expression", "clean_cutout", "style_match"],
+      "risk_tags": [],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-09",
+      "image_path": "assets/candidates/cand-09-ad-composite-title.png",
+      "expected_decision": "reject",
+      "human_reason": "The character may fit, but the title text and composed ad frame make it unsuitable as a reusable character asset.",
+      "fit_tags": ["same_character_possible", "vertical_ad"],
+      "risk_tags": ["text_overlay", "not_character_cutout", "composition_locked"],
+      "prompt_missing": false
+    },
+    {
+      "id": "cand-10",
+      "image_path": "assets/candidates/cand-10-endcard-background.png",
+      "expected_decision": "reject",
+      "human_reason": "The background scene and crop are useful as an endcard, but they fail the character-asset baseline requirement.",
+      "fit_tags": ["same_character_possible", "endcard_context"],
+      "risk_tags": ["background_baked_in", "not_reusable_asset", "crop_locked"],
+      "prompt_missing": false
+    }
+  ]
+}
