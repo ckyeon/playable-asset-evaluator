@@ -7,7 +7,7 @@ import type {
   DecisionLabel,
   Evaluation,
   EvaluationCriterion,
-  EvaluationSession,
+  GenerationContext,
   PromptGuidance
 } from "@/lib/types/domain";
 
@@ -42,11 +42,11 @@ export class JudgmentStore {
       throw new Error("Candidate image not found.");
     }
 
-    const session = db
-      .prepare("SELECT * FROM evaluation_sessions WHERE id = ?")
-      .get(candidate.session_id) as EvaluationSession | undefined;
-    if (!session) {
-      throw new Error("Evaluation session not found.");
+    const context = db
+      .prepare("SELECT * FROM generation_contexts WHERE id = ?")
+      .get(candidate.generation_context_id) as GenerationContext | undefined;
+    if (!context) {
+      throw new Error("Generation context not found.");
     }
 
     const promptText = input.promptText?.trim() || candidate.prompt_text || null;
@@ -95,8 +95,8 @@ export class JudgmentStore {
       } else {
         db.prepare(
           `INSERT INTO evaluations
-            (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state)
-           VALUES (?, ?, 'manual-judgment', ?, ?, ?, NULL, NULL, ?, 'saved')`
+            (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state, rubric_version)
+           VALUES (?, ?, 'manual-judgment', ?, ?, ?, NULL, NULL, ?, 'saved', 'v2_generation_context')`
         ).run(evaluationId, candidate.id, manualFitScore(decisionLabel), decisionLabel, humanReason, confidenceState);
       }
 
@@ -119,11 +119,16 @@ export class JudgmentStore {
             `INSERT INTO prompt_guidance
               (id, style_profile_id, evaluation_id, guidance_text, confidence_state)
              VALUES (?, ?, ?, ?, ?)`
-          ).run(savedGuidanceId, session.style_profile_id, savedEvaluationId, guidanceText, confidenceState);
+          ).run(savedGuidanceId, context.style_profile_id, savedEvaluationId, guidanceText, confidenceState);
         }
       }
 
-      refreshStyleSummary(session.style_profile_id);
+      db.prepare(
+        `UPDATE generation_contexts
+         SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?`
+      ).run(context.id);
+      refreshStyleSummary(context.style_profile_id);
     });
 
     save();

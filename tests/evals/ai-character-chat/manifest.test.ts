@@ -14,6 +14,10 @@ describe("AI Character Chat character asset baseline", () => {
     expect(manifest.status).toBe("ready");
     expect(manifest.asset_focus).toBe("character");
     expect(manifest.evaluation_goal).toBe("style_match");
+    expect(manifest.source_prompt.language).toBe("ko");
+    expect(manifest.source_prompt.text).toContain("캐릭터 이미지를 각 감정별로 생성해줘.");
+    expect(manifest.source_prompt.requested_emotions).toHaveLength(8);
+    expect(manifest.source_prompt.constraints).toHaveLength(3);
     expect(manifest.references).toHaveLength(8);
     expect(manifest.candidates).toHaveLength(10);
 

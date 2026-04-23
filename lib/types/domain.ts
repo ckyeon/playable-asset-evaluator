@@ -1,24 +1,32 @@
-export type AssetType =
-  | "card"
-  | "coin_reward"
-  | "button_cta"
-  | "background_effect"
-  | "character"
-  | "other";
+import type {
+  ALL_CRITERIA,
+  ASSET_TYPES,
+  CONFIDENCE_REASON_CODES,
+  CONFIDENCE_STATES,
+  CONTEXT_ASSET_ORIGINS,
+  DECISION_LABELS,
+  EVALUATION_STATES,
+  RUBRIC_VERSIONS,
+  SOURCE_INTEGRITY_STATES
+} from "@/lib/domain/constants";
 
-export type DecisionLabel = "good" | "needs_edit" | "reject";
+export type AssetType = (typeof ASSET_TYPES)[number];
 
-export type SourceIntegrity = "complete" | "incomplete";
+export type DecisionLabel = (typeof DECISION_LABELS)[number];
 
-export type ConfidenceState = "normal" | "low_confidence";
+export type SourceIntegrity = (typeof SOURCE_INTEGRITY_STATES)[number];
 
-export type Criterion =
-  | "style_match"
-  | "playable_readability"
-  | "creative_appeal"
-  | "production_usability";
+export type ConfidenceState = (typeof CONFIDENCE_STATES)[number];
 
-export type EvaluationState = "draft" | "saved" | "failed";
+export type ConfidenceReasonCode = (typeof CONFIDENCE_REASON_CODES)[number];
+
+export type Criterion = (typeof ALL_CRITERIA)[number];
+
+export type EvaluationState = (typeof EVALUATION_STATES)[number];
+
+export type RubricVersion = (typeof RUBRIC_VERSIONS)[number];
+
+export type ContextAssetOrigin = (typeof CONTEXT_ASSET_ORIGINS)[number];
 
 export interface StyleProfile {
   id: string;
@@ -48,9 +56,35 @@ export interface EvaluationSession {
   created_at: string;
 }
 
+export interface GenerationContext {
+  id: string;
+  style_profile_id: string;
+  name: string;
+  generation_goal: string | null;
+  asset_focus: AssetType;
+  target_use: string | null;
+  source_prompt: string | null;
+  tool_name: string | null;
+  model_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerationContextAsset {
+  id: string;
+  generation_context_id: string;
+  reference_asset_id: string | null;
+  origin: ContextAssetOrigin;
+  asset_type: AssetType;
+  file_path: string;
+  thumbnail_path: string | null;
+  snapshot_note: string | null;
+  created_at: string;
+}
+
 export interface CandidateImage {
   id: string;
-  session_id: string;
+  generation_context_id: string;
   file_path: string;
   thumbnail_path: string | null;
   generation_tool: string | null;
@@ -72,6 +106,7 @@ export interface Evaluation {
   raw_model_output_json: string | null;
   confidence_state: ConfidenceState;
   evaluation_state: EvaluationState;
+  rubric_version: RubricVersion;
   created_at: string;
 }
 
@@ -98,4 +133,5 @@ export interface EvaluationDraft {
   criteria: EvaluationCriterion[];
   next_prompt_guidance: string;
   weak_reference_set: boolean;
+  confidence_reasons: ConfidenceReasonCode[];
 }

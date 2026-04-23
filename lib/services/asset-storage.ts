@@ -1,17 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import sharp from "sharp";
 import { getDb } from "@/lib/db/client";
-import {
-  assetAbsolutePath,
-  candidateAssetDir,
-  ensureDir,
-  profileAssetDir,
-  toDataRelativePath
-} from "@/lib/files/paths";
-import { safeFileStem, validateImageLike } from "@/lib/files/image-validation";
-import type { AssetType, CandidateImage, EvaluationSession, ReferenceAsset } from "@/lib/types/domain";
+import { ImageFileStore } from "@/lib/files/image-file-store";
+import { generationContextAssetDir, profileAssetDir } from "@/lib/files/paths";
+import type { AssetType, CandidateImage, GenerationContext, ReferenceAsset } from "@/lib/types/domain";
 
 interface SaveReferenceInput {
   styleProfileId: string;
@@ -22,7 +12,8 @@ interface SaveReferenceInput {
 }
 
 interface SaveCandidateInput {
-  sessionId: string;
+  generationContextId?: string;
+  sessionId?: string;
   file: File;
   promptText?: string | null;
   promptMissing?: boolean;
@@ -31,6 +22,8 @@ interface SaveCandidateInput {
 }
 
 export class AssetStorage {
+  constructor(private readonly fileStore = new ImageFileStore()) {}
+
   async saveReferenceAsset(input: SaveReferenceInput): Promise<ReferenceAsset> {
     const db = getDb();
     const profile = db
@@ -41,7 +34,7 @@ export class AssetStorage {
       throw new Error("Style profile not found.");
     }
 
-    const stored = await this.writeImageFile({
+    const stored = await this.fileStore.writeImageFile({
       file: input.file,
       directory: profileAssetDir(input.styleProfileId, "references")
     });
@@ -63,36 +56,41 @@ export class AssetStorage {
 
       return db.prepare("SELECT * FROM reference_assets WHERE id = ?").get(stored.id) as ReferenceAsset;
     } catch (error) {
-      await this.cleanupFiles([stored.absoluteFilePath, stored.absoluteThumbnailPath]);
+      await this.fileStore.cleanupFiles([stored.absoluteFilePath, stored.absoluteThumbnailPath]);
       throw error;
     }
   }
 
   async saveCandidateImage(input: SaveCandidateInput): Promise<CandidateImage> {
     const db = getDb();
-    const session = db
-      .prepare("SELECT * FROM evaluation_sessions WHERE id = ?")
-      .get(input.sessionId) as EvaluationSession | undefined;
+    const generationContextId = input.generationContextId || input.sessionId;
+    if (!generationContextId) {
+      throw new Error("Generation context id is required.");
+    }
 
-    if (!session) {
-      throw new Error("Evaluation session not found.");
+    const context = db
+      .prepare("SELECT * FROM generation_contexts WHERE id = ?")
+      .get(generationContextId) as GenerationContext | undefined;
+
+    if (!context) {
+      throw new Error("Generation context not found.");
     }
 
     const promptText = input.promptText?.trim() || null;
     const promptMissing = input.promptMissing || !promptText;
-    const stored = await this.writeImageFile({
+    const stored = await this.fileStore.writeImageFile({
       file: input.file,
-      directory: candidateAssetDir(session.style_profile_id, session.id)
+      directory: generationContextAssetDir(context.style_profile_id, context.id, "candidates")
     });
 
     try {
       db.prepare(
         `INSERT INTO candidate_images
-          (id, session_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
+          (id, generation_context_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         stored.id,
-        input.sessionId,
+        context.id,
         stored.filePath,
         stored.thumbnailPath,
         input.generationTool?.trim() || null,
@@ -102,9 +100,15 @@ export class AssetStorage {
         input.recoveryNote?.trim() || null
       );
 
+      db.prepare(
+        `UPDATE generation_contexts
+         SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?`
+      ).run(context.id);
+
       return db.prepare("SELECT * FROM candidate_images WHERE id = ?").get(stored.id) as CandidateImage;
     } catch (error) {
-      await this.cleanupFiles([stored.absoluteFilePath, stored.absoluteThumbnailPath]);
+      await this.fileStore.cleanupFiles([stored.absoluteFilePath, stored.absoluteThumbnailPath]);
       throw error;
     }
   }
@@ -120,7 +124,7 @@ export class AssetStorage {
     }
 
     db.prepare("DELETE FROM reference_assets WHERE id = ?").run(referenceAssetId);
-    await this.cleanupRelativeFiles([asset.file_path, asset.thumbnail_path]);
+    await this.fileStore.cleanupRelativeFiles([asset.file_path, asset.thumbnail_path]);
   }
 
   async deleteCandidateImage(candidateImageId: string): Promise<void> {
@@ -144,64 +148,6 @@ export class AssetStorage {
     });
 
     deleteRows();
-    await this.cleanupRelativeFiles([candidate.file_path, candidate.thumbnail_path]);
-  }
-
-  private async writeImageFile(input: {
-    file: File;
-    directory: string;
-  }): Promise<{
-    id: string;
-    filePath: string;
-    thumbnailPath: string | null;
-    absoluteFilePath: string;
-    absoluteThumbnailPath: string | null;
-  }> {
-    const id = randomUUID();
-    const validation = validateImageLike({
-      name: input.file.name,
-      type: input.file.type,
-      size: input.file.size
-    });
-    const buffer = Buffer.from(await input.file.arrayBuffer());
-    const stem = `${id}-${safeFileStem(input.file.name)}`;
-
-    ensureDir(input.directory);
-
-    const absoluteFilePath = path.join(input.directory, `${stem}.${validation.extension}`);
-    const absoluteThumbnailPath = path.join(input.directory, "thumbnails", `${stem}.webp`);
-    ensureDir(path.dirname(absoluteThumbnailPath));
-
-    await fs.writeFile(absoluteFilePath, buffer);
-
-    let thumbnailPath: string | null = null;
-    try {
-      await sharp(buffer)
-        .rotate()
-        .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 82 })
-        .toFile(absoluteThumbnailPath);
-      thumbnailPath = toDataRelativePath(absoluteThumbnailPath);
-    } catch {
-      await fs.rm(absoluteThumbnailPath, { force: true });
-    }
-
-    return {
-      id,
-      filePath: toDataRelativePath(absoluteFilePath),
-      thumbnailPath,
-      absoluteFilePath,
-      absoluteThumbnailPath: thumbnailPath ? absoluteThumbnailPath : null
-    };
-  }
-
-  private async cleanupFiles(paths: Array<string | null>): Promise<void> {
-    await Promise.all(paths.filter(Boolean).map((filePath) => fs.rm(filePath as string, { force: true })));
-  }
-
-  private async cleanupRelativeFiles(paths: Array<string | null>): Promise<void> {
-    await Promise.all(
-      paths.filter(Boolean).map((filePath) => fs.rm(assetAbsolutePath(filePath as string), { force: true }))
-    );
+    await this.fileStore.cleanupRelativeFiles([candidate.file_path, candidate.thumbnail_path]);
   }
 }

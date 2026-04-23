@@ -1,6 +1,6 @@
-import { AssetStorage } from "@/lib/services/asset-storage";
 import { errorResponse, ok } from "@/lib/api/responses";
 import { toAssetUrl } from "@/lib/files/paths";
+import { AssetStorage } from "@/lib/services/asset-storage";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
 
     const candidate = await new AssetStorage().saveCandidateImage({
-      sessionId: id,
+      generationContextId: id,
       file,
       promptText: formData.get("promptText") as string | null,
       promptMissing: formData.get("promptMissing") === "true",
@@ -24,7 +24,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
     return ok(
       {
-        deprecated: true,
         candidate: {
           ...candidate,
           imageUrl: toAssetUrl(candidate.thumbnail_path || candidate.file_path),

@@ -39,9 +39,39 @@ interface Session {
   name: string;
 }
 
+interface GenerationContext {
+  id: string;
+  style_profile_id: string;
+  name: string;
+  generation_goal: string | null;
+  asset_focus: string;
+  target_use: string | null;
+  source_prompt: string | null;
+  tool_name: string | null;
+  model_name: string | null;
+  updated_at: string;
+  reference_strength: "none" | "weak" | "strong";
+  confidence_reasons: string[];
+  candidate_count: number;
+  saved_judgment_count: number;
+  sourceAssets: ContextSourceAsset[];
+}
+
+interface ContextSourceAsset {
+  id: string;
+  generation_context_id: string;
+  reference_asset_id: string | null;
+  origin: "profile_reference" | "context_upload";
+  asset_type: string;
+  file_path: string;
+  thumbnail_path: string | null;
+  snapshot_note: string | null;
+  imageUrl: string | null;
+}
+
 interface Candidate {
   id: string;
-  session_id: string;
+  generation_context_id: string;
   file_path: string;
   thumbnail_path: string | null;
   prompt_text: string | null;
@@ -73,6 +103,7 @@ interface Evaluation {
 interface ProfileDetail {
   profile: StyleProfile;
   referenceAssets: ReferenceAsset[];
+  generationContexts: GenerationContext[];
   sessions: Session[];
   candidates: Candidate[];
 }
@@ -86,6 +117,7 @@ interface Draft {
 
 interface HistoryItem {
   session: Session;
+  generationContext?: GenerationContext;
   candidate: Candidate;
   evaluations: Evaluation[];
 }
@@ -101,16 +133,22 @@ const assetTypes = [
 
 export function WorkspaceClient() {
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
+  const sourceInputRef = useRef<HTMLInputElement | null>(null);
   const candidateInputRef = useRef<HTMLInputElement | null>(null);
   const [profiles, setProfiles] = useState<StyleProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProfileDetail | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [selectedContextId, setSelectedContextId] = useState<string | null>(null);
   const [currentCandidate, setCurrentCandidate] = useState<Candidate | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [newProfileName, setNewProfileName] = useState("");
+  const [newContextName, setNewContextName] = useState("");
+  const [generationGoal, setGenerationGoal] = useState("");
   const [referenceType, setReferenceType] = useState("card");
   const [referenceNote, setReferenceNote] = useState("");
+  const [sourceType, setSourceType] = useState("character");
+  const [sourceNote, setSourceNote] = useState("");
   const [promptText, setPromptText] = useState("");
   const [promptMissing, setPromptMissing] = useState(false);
   const [recoveryNote, setRecoveryNote] = useState("");
@@ -121,7 +159,17 @@ export function WorkspaceClient() {
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<{ kind: "ok" | "error" | "info"; text: string } | null>(null);
 
-  const activeSession = detail?.sessions[0] || null;
+  const activeContext = useMemo(() => {
+    if (!detail?.generationContexts.length) {
+      return null;
+    }
+    return detail.generationContexts.find((context) => context.id === selectedContextId) || detail.generationContexts[0];
+  }, [detail, selectedContextId]);
+
+  const activeContextCandidates = useMemo(
+    () => detail?.candidates.filter((candidate) => candidate.generation_context_id === activeContext?.id) || [],
+    [activeContext?.id, detail?.candidates]
+  );
 
   const loadProfiles = useCallback(async () => {
     const response = await fetch("/api/style-profiles", { cache: "no-store" });
@@ -139,10 +187,18 @@ export function WorkspaceClient() {
     const historyData = (await historyResponse.json()) as { history: HistoryItem[] };
     setDetail(detailData);
     setHistory(historyData.history);
-    if (!currentCandidate && detailData.candidates[0]) {
-      selectCandidate(detailData.candidates[0]);
+    const nextContext =
+      detailData.generationContexts.find((context) => context.id === selectedContextId) ||
+      detailData.generationContexts[0] ||
+      null;
+    setSelectedContextId(nextContext?.id || null);
+    const nextCandidate = nextContext
+      ? detailData.candidates.find((candidate) => candidate.generation_context_id === nextContext.id)
+      : detailData.candidates[0];
+    if (!currentCandidate && nextCandidate) {
+      selectCandidate(nextCandidate);
     }
-  }, [currentCandidate]);
+  }, [currentCandidate, selectedContextId]);
 
   useEffect(() => {
     loadProfiles().catch((error) => setStatus({ kind: "error", text: error.message }));
@@ -153,6 +209,18 @@ export function WorkspaceClient() {
       loadDetail(selectedProfileId).catch((error) => setStatus({ kind: "error", text: error.message }));
     }
   }, [loadDetail, selectedProfileId]);
+
+  useEffect(() => {
+    if (!activeContext) {
+      return;
+    }
+    if (!currentCandidate || currentCandidate.generation_context_id !== activeContext.id) {
+      const nextCandidate = activeContextCandidates[0] || null;
+      if (nextCandidate) {
+        selectCandidate(nextCandidate);
+      }
+    }
+  }, [activeContext, activeContextCandidates, currentCandidate]);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -218,6 +286,39 @@ export function WorkspaceClient() {
     }
   }
 
+  async function createContext() {
+    if (!selectedProfileId || !newContextName.trim()) {
+      return;
+    }
+    setBusy("context");
+    try {
+      const response = await fetch(`/api/style-profiles/${selectedProfileId}/generation-contexts`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: newContextName,
+          generationGoal,
+          assetFocus: sourceType,
+          sourcePrompt: promptText,
+          toolName: generationTool
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error);
+      }
+      setNewContextName("");
+      setGenerationGoal("");
+      setSelectedContextId(data.generationContext.id);
+      await loadDetail(selectedProfileId);
+      setStatus({ kind: "ok", text: "Generation context created." });
+    } catch (error) {
+      setStatus({ kind: "error", text: error instanceof Error ? error.message : "Failed to create context." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function uploadReferences(files: FileList | null) {
     if (!files || !selectedProfileId) {
       return;
@@ -250,9 +351,65 @@ export function WorkspaceClient() {
     }
   }
 
+  async function addProfileReferenceToContext(referenceAssetId: string) {
+    if (!selectedProfileId || !activeContext) {
+      return;
+    }
+    setBusy(`source-add-${referenceAssetId}`);
+    try {
+      const response = await fetch(`/api/generation-contexts/${activeContext.id}/source-assets`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ referenceAssetId })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error);
+      }
+      await loadDetail(selectedProfileId);
+      setStatus({ kind: "ok", text: "Source asset added to context." });
+    } catch (error) {
+      setStatus({ kind: "error", text: error instanceof Error ? error.message : "Failed to add source asset." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function uploadContextSources(files: FileList | null) {
+    if (!files || !selectedProfileId || !activeContext) {
+      return;
+    }
+    setBusy("source-upload");
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("assetType", sourceType);
+        formData.append("note", sourceNote);
+        const response = await fetch(`/api/generation-contexts/${activeContext.id}/source-assets`, {
+          method: "POST",
+          body: formData
+        });
+        if (!response.ok) {
+          throw new Error((await response.json()).error);
+        }
+      }
+      setSourceNote("");
+      await loadDetail(selectedProfileId);
+      setStatus({ kind: "ok", text: "Context source asset saved." });
+    } catch (error) {
+      setStatus({ kind: "error", text: error instanceof Error ? error.message : "Failed to upload source asset." });
+    } finally {
+      setBusy(null);
+      if (sourceInputRef.current) {
+        sourceInputRef.current.value = "";
+      }
+    }
+  }
+
   async function uploadCandidate(file: File) {
-    if (!selectedProfileId || !activeSession) {
-      throw new Error("Create or select a style profile first.");
+    if (!selectedProfileId || !activeContext) {
+      throw new Error("Create or select a generation context first.");
     }
     setBusy("candidate");
     try {
@@ -263,7 +420,7 @@ export function WorkspaceClient() {
       formData.append("recoveryNote", recoveryNote);
       formData.append("generationTool", generationTool);
 
-      const response = await fetch(`/api/sessions/${activeSession.id}/candidates`, {
+      const response = await fetch(`/api/generation-contexts/${activeContext.id}/candidates`, {
         method: "POST",
         body: formData
       });
@@ -435,6 +592,7 @@ export function WorkspaceClient() {
                 key={profile.id}
                 onClick={() => {
                   setSelectedProfileId(profile.id);
+                  setSelectedContextId(null);
                   setCurrentCandidate(null);
                 }}
               >
@@ -459,6 +617,45 @@ export function WorkspaceClient() {
               <Save size={16} aria-hidden /> Create
             </button>
           </div>
+
+          {detail ? (
+            <div className="create-profile" style={{ marginTop: 18 }}>
+              <label className="section-title">Generation contexts</label>
+              <div className="profile-list" aria-label="Generation contexts">
+                {detail.generationContexts.map((context) => (
+                  <button
+                    className={`profile-button ${context.id === activeContext?.id ? "is-active" : ""}`}
+                    key={context.id}
+                    onClick={() => {
+                      setSelectedContextId(context.id);
+                      setCurrentCandidate(null);
+                    }}
+                  >
+                    <strong>{context.name}</strong>
+                    <span>
+                      {context.reference_strength} · {context.candidate_count} candidates ·{" "}
+                      {context.saved_judgment_count} saved
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <input
+                className="input"
+                value={newContextName}
+                onChange={(event) => setNewContextName(event.target.value)}
+                placeholder="Emotion batch 01"
+              />
+              <textarea
+                className="textarea"
+                value={generationGoal}
+                onChange={(event) => setGenerationGoal(event.target.value)}
+                placeholder="Generation goal"
+              />
+              <button className="button secondary" onClick={createContext} disabled={busy === "context"}>
+                <Save size={16} aria-hidden /> Context
+              </button>
+            </div>
+          ) : null}
         </aside>
 
         <section className="main-workspace">
@@ -466,8 +663,18 @@ export function WorkspaceClient() {
             <div className="panel">
               <div className="panel-header">
                 <div>
-                  <h2>{detail?.profile.name || "Style profile"}</h2>
-                  <div className="microcopy">{detail?.profile.style_summary || "No saved style guidance yet."}</div>
+                  <h2>{activeContext?.name || detail?.profile.name || "Generation context"}</h2>
+                  <div className="microcopy">
+                    {activeContext?.generation_goal || detail?.profile.style_summary || "No saved generation context yet."}
+                  </div>
+                  {activeContext ? (
+                    <div className="microcopy">
+                      {activeContext.asset_focus} · {activeContext.reference_strength} reference strength
+                      {activeContext.confidence_reasons.length
+                        ? ` · ${activeContext.confidence_reasons.join(", ")}`
+                        : ""}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="toolbar">
                   {selectedProfileId ? (
@@ -483,6 +690,61 @@ export function WorkspaceClient() {
                 </div>
               </div>
             </div>
+
+            <section className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Context source assets</h2>
+                  <div className="microcopy">Assets actually used for this generation context.</div>
+                </div>
+                <button
+                  className="button secondary icon-button"
+                  onClick={() => sourceInputRef.current?.click()}
+                  disabled={!activeContext}
+                >
+                  <Upload size={16} aria-label="Upload context source assets" />
+                </button>
+              </div>
+              <div className="form-row" style={{ marginTop: 12 }}>
+                <select className="select" value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
+                  {assetTypes.map(([value, label]) => (
+                    <option value={value} key={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="input"
+                  value={sourceNote}
+                  onChange={(event) => setSourceNote(event.target.value)}
+                  placeholder="Source note"
+                />
+              </div>
+              <input
+                className="hidden-input"
+                ref={sourceInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                multiple
+                onChange={(event) => uploadContextSources(event.target.files)}
+              />
+              <div className="reference-grid">
+                {activeContext?.sourceAssets.map((asset) => (
+                  <div className="asset-tile" key={asset.id}>
+                    <div className="asset-thumb">
+                      {asset.imageUrl ? <img src={asset.imageUrl} alt={asset.snapshot_note || asset.asset_type} /> : null}
+                    </div>
+                    <div className="asset-meta">
+                      <strong>{asset.origin}</strong>
+                      <div>{asset.snapshot_note || asset.asset_type}</div>
+                    </div>
+                  </div>
+                ))}
+                {activeContext && activeContext.sourceAssets.length === 0 ? (
+                  <div className="status">Add the assets you actually used for this generation.</div>
+                ) : null}
+              </div>
+            </section>
 
             <div className="comparison-grid">
               <section className="panel">
@@ -524,14 +786,24 @@ export function WorkspaceClient() {
                       <div className="asset-meta">
                         <div className="asset-meta-header">
                           <strong>{asset.asset_type}</strong>
-                          <button
-                            className="small-icon-button"
-                            onClick={() => deleteReferenceAsset(asset.id)}
-                            disabled={busy === `reference-delete-${asset.id}`}
-                            title="Remove reference"
-                          >
-                            <Trash2 size={14} aria-label="Remove reference" />
-                          </button>
+                          <div className="toolbar">
+                            <button
+                              className="small-icon-button"
+                              onClick={() => addProfileReferenceToContext(asset.id)}
+                              disabled={!activeContext || busy === `source-add-${asset.id}`}
+                              title="Use as context source"
+                            >
+                              <ImagePlus size={14} aria-label="Use as context source" />
+                            </button>
+                            <button
+                              className="small-icon-button"
+                              onClick={() => deleteReferenceAsset(asset.id)}
+                              disabled={busy === `reference-delete-${asset.id}`}
+                              title="Remove reference"
+                            >
+                              <Trash2 size={14} aria-label="Remove reference" />
+                            </button>
+                          </div>
                         </div>
                         <div>{asset.note || "No note"}</div>
                       </div>
@@ -641,7 +913,7 @@ export function WorkspaceClient() {
                   const evaluation = item.evaluations[0];
                   return (
                     <button className="history-item" key={item.candidate.id} onClick={() => selectCandidate(item.candidate)}>
-                      <strong>{item.session.name}</strong>
+                      <strong>{item.generationContext?.name || item.session.name}</strong>
                       <span>
                         {evaluation ? (
                           <>
@@ -670,8 +942,10 @@ export function WorkspaceClient() {
 
             {status ? <div className={`status ${status.kind === "info" ? "" : status.kind}`}>{status.text}</div> : null}
 
-            {detail && detail.referenceAssets.length < 3 ? (
-              <div className="warning">Weak reference set: add at least 3 references for stronger evaluator guidance.</div>
+            {activeContext && activeContext.reference_strength !== "strong" ? (
+              <div className="warning">
+                Weak context source set: add source assets or prompt details for stronger evaluator guidance.
+              </div>
             ) : null}
 
             {activeEvaluation ? (

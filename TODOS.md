@@ -25,6 +25,56 @@ Depends on / blocked by: Approved design doc at `/Users/ckyeon/.gstack/projects/
 
 ## Evaluation
 
+### Remove deprecated sessions API aliases
+
+Status: Planned. Added by `/plan-ceo-review` for the Generation Context amendment.
+
+What: Remove the deprecated `/api/sessions` and `/api/sessions/:id/candidates` aliases after the UI, tests, eval import script, and docs all use generation-context routes.
+
+Why: The aliases are useful for one migration window, but keeping them indefinitely preserves two mental models for the same product unit.
+
+Pros:
+- Reduces API surface area after the migration settles.
+- Prevents future validation drift between session and generation-context paths.
+- Keeps `Generation Context` as the clear source of truth.
+
+Cons:
+- Requires checking all callers before removal.
+- Can break any local scripts still using the old route names.
+
+Context: `/plan-ceo-review` selected full migration from `evaluation_sessions` to `generation_contexts` with old session routes kept only as thin deprecated aliases. This TODO should be executed after implementation proves no app/test/import callers depend on old session routes.
+
+Effort estimate: S human -> S with CC+gstack.
+
+Priority: P2.
+
+Depends on / blocked by: Generation Context implementation and route migration.
+
+### Build Prompt Revision Chain
+
+Status: Planned. Deferred by `/plan-ceo-review` until after Generation Context lands.
+
+What: Track original prompt, follow-up prompt revisions, linked candidates, and whether generated guidance improved the next result.
+
+Why: Generation Context records what was used for one generation attempt. Prompt Revision Chain records which edit instructions actually moved the output toward a better asset, which is needed for higher-quality recommendations.
+
+Pros:
+- Makes prompt guidance measurable instead of anecdotal.
+- Helps recommend proven edit instructions for similar future contexts.
+- Creates a bridge from judgment memory to semi-automated generation loops.
+
+Cons:
+- Adds DB/API/UI complexity beyond the core context migration.
+- Needs enough saved contexts before the history becomes useful.
+
+Context: The Generation Context amendment intentionally keeps only source prompt and next guidance in the current scope. This follow-up should add a prompt revision table, revision-to-candidate linkage, and guidance outcome tracking after the core context model is stable.
+
+Effort estimate: M human -> S/M with CC+gstack.
+
+Priority: P2.
+
+Depends on / blocked by: Generation Context implementation.
+
 ### Build AI Character Chat character eval baseline
 
 Status: Done. The ready dataset, copied eval images, and integrity test exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.

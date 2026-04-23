@@ -1,15 +1,11 @@
 import { z } from "zod";
+import { ALL_CRITERIA, CONFIDENCE_STATES, DECISION_LABELS, V2_CRITERIA } from "@/lib/domain/constants";
 
-export const criterionSchema = z.enum([
-  "style_match",
-  "playable_readability",
-  "creative_appeal",
-  "production_usability"
-]);
+export const criterionSchema = z.enum(ALL_CRITERIA);
 
-export const decisionLabelSchema = z.enum(["good", "needs_edit", "reject"]);
+export const decisionLabelSchema = z.enum(DECISION_LABELS);
 
-export const confidenceStateSchema = z.enum(["normal", "low_confidence"]);
+export const confidenceStateSchema = z.enum(CONFIDENCE_STATES);
 
 export const modelEvaluationSchema = z
   .object({
@@ -30,7 +26,7 @@ export const modelEvaluationSchema = z
   })
   .superRefine((value, context) => {
     const seen = new Set(value.criteria.map((criterion) => criterion.criterion));
-    for (const required of criterionSchema.options) {
+    for (const required of V2_CRITERIA) {
       if (!seen.has(required)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,

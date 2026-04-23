@@ -8,16 +8,18 @@ import type {
   Evaluation,
   EvaluationCriterion,
   EvaluationDraft,
-  EvaluationSession,
+  GenerationContext,
+  GenerationContextAsset,
   ReferenceAsset,
   StyleProfile
 } from "@/lib/types/domain";
+import { computeContextConfidence } from "@/lib/services/generation-context-service";
 
 interface EvaluationContext {
   profile: StyleProfile;
-  session: EvaluationSession;
+  generationContext: GenerationContext;
   candidate: CandidateImage;
-  references: ReferenceAsset[];
+  sourceAssets: GenerationContextAsset[];
   weakReferenceSet: boolean;
 }
 
@@ -64,6 +66,36 @@ export class EvaluationRunner {
     };
   }
 
+  selectContextSourceAssets(context: GenerationContext, requestedReferenceIds: string[] = []): {
+    sourceAssets: GenerationContextAsset[];
+    weakReferenceSet: boolean;
+  } {
+    const db = getDb();
+    let sourceAssets = db
+      .prepare(
+        `SELECT * FROM generation_context_assets
+         WHERE generation_context_id = ?
+         ORDER BY origin ASC, created_at DESC
+         LIMIT 8`
+      )
+      .all(context.id) as GenerationContextAsset[];
+
+    if (sourceAssets.length === 0 && requestedReferenceIds.length > 0) {
+      const subset = this.selectReferenceSubset(context.style_profile_id, requestedReferenceIds);
+      sourceAssets = subset.references.map(referenceToContextAsset(context.id));
+    }
+
+    if (sourceAssets.length === 0) {
+      const subset = this.selectReferenceSubset(context.style_profile_id);
+      sourceAssets = subset.references.map(referenceToContextAsset(context.id));
+    }
+
+    return {
+      sourceAssets,
+      weakReferenceSet: sourceAssets.length < 3
+    };
+  }
+
   async evaluateCandidate(candidateId: string, requestedReferenceIds: string[] = []): Promise<EvaluationDraft> {
     const context = this.loadContext(candidateId, requestedReferenceIds);
     const raw = await this.adapter.evaluate(context);
@@ -91,27 +123,27 @@ export class EvaluationRunner {
       throw new Error("Candidate image not found.");
     }
 
-    const session = db
-      .prepare("SELECT * FROM evaluation_sessions WHERE id = ?")
-      .get(candidate.session_id) as EvaluationSession | undefined;
-    if (!session) {
-      throw new Error("Evaluation session not found.");
+    const generationContext = db
+      .prepare("SELECT * FROM generation_contexts WHERE id = ?")
+      .get(candidate.generation_context_id) as GenerationContext | undefined;
+    if (!generationContext) {
+      throw new Error("Generation context not found.");
     }
 
     const profile = db
       .prepare("SELECT * FROM style_profiles WHERE id = ?")
-      .get(session.style_profile_id) as StyleProfile | undefined;
+      .get(generationContext.style_profile_id) as StyleProfile | undefined;
     if (!profile) {
       throw new Error("Style profile not found.");
     }
 
-    const subset = this.selectReferenceSubset(profile.id, requestedReferenceIds);
+    const subset = this.selectContextSourceAssets(generationContext, requestedReferenceIds);
 
     return {
       profile,
-      session,
+      generationContext,
       candidate,
-      references: subset.references,
+      sourceAssets: subset.sourceAssets,
       weakReferenceSet: subset.weakReferenceSet
     };
   }
@@ -147,8 +179,8 @@ export class EvaluationRunner {
 
       db.prepare(
         `INSERT INTO evaluations
-          (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state)
-         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'draft')`
+          (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state, rubric_version)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'draft', 'v2_generation_context')`
       ).run(
         evaluationId,
         candidateId,
@@ -175,6 +207,8 @@ export class EvaluationRunner {
     });
 
     insert();
+    const context = this.loadContext(candidateId, []);
+    const confidence = computeContextConfidence(context.generationContext, context.sourceAssets);
 
     return {
       evaluation: db.prepare("SELECT * FROM evaluations WHERE id = ?").get(evaluationId) as Evaluation,
@@ -182,7 +216,8 @@ export class EvaluationRunner {
         .prepare("SELECT * FROM evaluation_criteria WHERE evaluation_id = ? ORDER BY criterion")
         .all(evaluationId) as EvaluationCriterion[],
       next_prompt_guidance: parsed.next_prompt_guidance,
-      weak_reference_set: weakReferenceSet
+      weak_reference_set: weakReferenceSet,
+      confidence_reasons: confidence.confidence_reasons
     };
   }
 
@@ -191,8 +226,8 @@ export class EvaluationRunner {
     const id = randomUUID();
     db.prepare(
       `INSERT INTO evaluations
-        (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state)
-       VALUES (?, ?, ?, 0, 'reject', NULL, ?, ?, 'low_confidence', 'failed')`
+        (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state, rubric_version)
+       VALUES (?, ?, ?, 0, 'reject', NULL, ?, ?, 'low_confidence', 'failed', 'v2_generation_context')`
     ).run(id, candidateId, process.env.EVALUATION_MODEL || "mock-evaluator-v1", "Invalid model JSON.", JSON.stringify(raw));
 
     return db.prepare("SELECT * FROM evaluations WHERE id = ?").get(id) as Evaluation;
@@ -208,27 +243,27 @@ class MockEvaluationAdapter implements ModelAdapter {
     const fitScore = Math.max(42, 78 - weakPenalty - promptPenalty);
     const decision: DecisionLabel = fitScore >= 82 ? "good" : fitScore >= 55 ? "needs_edit" : "reject";
     const referenceLanguage =
-      context.references.length > 0
-        ? `${context.references.length} selected reference assets`
-        : "the currently empty reference set";
+      context.sourceAssets.length > 0
+        ? `${context.sourceAssets.length} context source assets`
+        : "the currently empty context source set";
 
     return {
       fit_score: fitScore,
       criteria: [
         {
-          criterion: "style_match",
+          criterion: "profile_fit",
           score: Math.max(40, fitScore - 2),
           reason: `Compare palette, lighting, and rendering weight against ${referenceLanguage}; keep the candidate closer to the accepted mobile-game look.`
         },
         {
-          criterion: "playable_readability",
+          criterion: "source_asset_match",
           score: Math.max(40, fitScore + 3),
-          reason: "Check whether the main shape reads quickly on a small phone screen and avoids CTA or reward clutter."
+          reason: "Check whether the candidate matches the actual source assets used for this generation context, not only the profile-wide memory."
         },
         {
-          criterion: "creative_appeal",
+          criterion: "prompt_intent_match",
           score: Math.max(40, fitScore + 1),
-          reason: "The candidate should feel lively and rewarding without drifting into unrelated casino realism."
+          reason: "The candidate should satisfy the context prompt and brief instead of drifting into a generic asset variant."
         },
         {
           criterion: "production_usability",
@@ -238,12 +273,26 @@ class MockEvaluationAdapter implements ModelAdapter {
       ],
       ai_summary: promptMissing
         ? "Draft evaluation is low confidence because the original generation prompt is missing."
-        : "Draft evaluation compares the candidate against the active style profile and reference subset.",
+        : "Draft evaluation compares the candidate against the active generation context and source assets.",
       suggested_decision: decision,
       next_prompt_guidance: promptMissing
         ? "Recover the likely prompt intent first, then ask for a crisp mobile-game asset matching the Korean card casino remix references."
-        : `Revise the next prompt toward ${context.profile.name}: bright readable mobile-game rendering, clean silhouette, and restrained slot-machine reward energy.`,
+        : `Revise the next prompt toward ${context.generationContext.generation_goal || context.profile.name}: bright readable mobile-game rendering, clean silhouette, and reusable production-ready separation.`,
       confidence_state: confidence
     };
   }
+}
+
+function referenceToContextAsset(generationContextId: string) {
+  return (reference: ReferenceAsset): GenerationContextAsset => ({
+    id: reference.id,
+    generation_context_id: generationContextId,
+    reference_asset_id: reference.id,
+    origin: "profile_reference",
+    asset_type: reference.asset_type,
+    file_path: reference.file_path,
+    thumbnail_path: reference.thumbnail_path,
+    snapshot_note: reference.note,
+    created_at: reference.created_at
+  });
 }

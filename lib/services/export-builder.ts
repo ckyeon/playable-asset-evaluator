@@ -1,12 +1,9 @@
 import { existsSync } from "node:fs";
-import { getDb } from "@/lib/db/client";
 import { assetAbsolutePath } from "@/lib/files/paths";
+import { loadProfileContextReadModel, type ProfileContextReadModel } from "@/lib/services/profile-context-read-model";
 import type {
   CandidateImage,
-  Evaluation,
-  EvaluationCriterion,
-  EvaluationSession,
-  PromptGuidance,
+  GenerationContextAsset,
   ReferenceAsset,
   StyleProfile
 } from "@/lib/types/domain";
@@ -25,21 +22,16 @@ export class ExportBuilder {
       style_profile: data.profile,
       warnings: data.warnings,
       reference_assets: data.references.map(withFileWarningFlag(data.warnings)),
-      sessions: data.sessions.map((session) => ({
-        ...session,
-        candidates: data.candidates
-          .filter((candidate) => candidate.session_id === session.id)
-          .map((candidate) => ({
-            ...candidate,
-            missing_file: hasWarning(data.warnings, candidate.id),
-            evaluations: data.evaluations
-              .filter((evaluation) => evaluation.candidate_image_id === candidate.id)
-              .map((evaluation) => ({
-                ...evaluation,
-                criteria: data.criteria.filter((criterion) => criterion.evaluation_id === evaluation.id),
-                prompt_guidance: data.guidance.filter((guidance) => guidance.evaluation_id === evaluation.id)
-              }))
-          }))
+      contexts: data.model.contexts.map((context) => ({
+        ...context.context,
+        reference_strength: context.reference_strength,
+        confidence_reasons: context.confidence_reasons,
+        source_assets: context.sourceAssets.map(withFileWarningFlag(data.warnings)),
+        candidates: context.candidates.map(({ candidate, evaluations }) => ({
+          ...candidate,
+          missing_file: hasWarning(data.warnings, candidate.id),
+          evaluations
+        }))
       }))
     };
   }
@@ -50,21 +42,16 @@ export class ExportBuilder {
       style_profile: StyleProfile;
       warnings: ExportWarning[];
       reference_assets: Array<ReferenceAsset & { missing_file: boolean }>;
-      sessions: Array<
-        EvaluationSession & {
-          candidates: Array<
-            CandidateImage & {
-              missing_file: boolean;
-              evaluations: Array<
-                Evaluation & {
-                  criteria: EvaluationCriterion[];
-                  prompt_guidance: PromptGuidance[];
-                }
-              >;
-            }
-          >;
-        }
-      >;
+      contexts: Array<{
+        id: string;
+        name: string;
+        generation_goal: string | null;
+        source_prompt: string | null;
+        reference_strength: string;
+        confidence_reasons: string[];
+        source_assets: Array<GenerationContextAsset & { missing_file: boolean }>;
+        candidates: Array<CandidateImage & { missing_file: boolean; evaluations: Array<any> }>;
+      }>;
     };
 
     const lines = [
@@ -88,10 +75,29 @@ export class ExportBuilder {
       );
     }
 
-    for (const session of data.sessions) {
-      lines.push("", `## Session: ${session.name}`, "");
-      for (const candidate of session.candidates) {
+    for (const context of data.contexts) {
+      lines.push(
+        "",
+        `## Generation Context: ${context.name}`,
+        "",
+        `- Goal: ${context.generation_goal || "(none)"}`,
+        `- Source prompt: ${context.source_prompt || "(none)"}`,
+        `- Reference strength: ${context.reference_strength}`,
+        `- Confidence reasons: ${context.confidence_reasons.length ? context.confidence_reasons.join(", ") : "(none)"}`,
+        "",
+        "### Source Assets",
+        ""
+      );
+      for (const sourceAsset of context.source_assets) {
         lines.push(
+          `- ${sourceAsset.origin}/${sourceAsset.asset_type}: ${sourceAsset.file_path}${
+            sourceAsset.missing_file ? " (missing_file)" : ""
+          }${sourceAsset.snapshot_note ? ` - ${sourceAsset.snapshot_note}` : ""}`
+        );
+      }
+      for (const candidate of context.candidates) {
+        lines.push(
+          "",
           `### Candidate ${candidate.id}`,
           "",
           `- Image: ${candidate.file_path}${candidate.missing_file ? " (missing_file)" : ""}`,
@@ -134,53 +140,23 @@ export class ExportBuilder {
   private loadProfileData(styleProfileId: string): {
     profile: StyleProfile;
     references: ReferenceAsset[];
-    sessions: EvaluationSession[];
-    candidates: CandidateImage[];
-    evaluations: Evaluation[];
-    criteria: EvaluationCriterion[];
-    guidance: PromptGuidance[];
+    model: ProfileContextReadModel;
     warnings: ExportWarning[];
   } {
-    const db = getDb();
-    const profile = db.prepare("SELECT * FROM style_profiles WHERE id = ?").get(styleProfileId) as
-      | StyleProfile
-      | undefined;
-    if (!profile) {
-      throw new Error("Style profile not found.");
-    }
-
-    const references = db
-      .prepare("SELECT * FROM reference_assets WHERE style_profile_id = ? ORDER BY created_at DESC")
-      .all(styleProfileId) as ReferenceAsset[];
-    const sessions = db
-      .prepare("SELECT * FROM evaluation_sessions WHERE style_profile_id = ? ORDER BY created_at DESC")
-      .all(styleProfileId) as EvaluationSession[];
-    const candidates = sessions.flatMap((session) =>
-      db
-        .prepare("SELECT * FROM candidate_images WHERE session_id = ? ORDER BY created_at DESC")
-        .all(session.id)
-    ) as CandidateImage[];
-    const evaluations = candidates.flatMap((candidate) =>
-      db
-        .prepare("SELECT * FROM evaluations WHERE candidate_image_id = ? ORDER BY created_at DESC")
-        .all(candidate.id)
-    ) as Evaluation[];
-    const criteria = evaluations.flatMap((evaluation) =>
-      db.prepare("SELECT * FROM evaluation_criteria WHERE evaluation_id = ? ORDER BY criterion").all(evaluation.id)
-    ) as EvaluationCriterion[];
-    const guidance = db
-      .prepare("SELECT * FROM prompt_guidance WHERE style_profile_id = ? ORDER BY created_at DESC")
-      .all(styleProfileId) as PromptGuidance[];
+    const model = loadProfileContextReadModel(styleProfileId);
+    const candidates = model.contexts.flatMap((context) => context.candidates.map((item) => item.candidate));
+    const sourceAssets = model.contexts.flatMap((context) => context.sourceAssets);
     const warnings = [
-      ...references.flatMap(fileWarningFor),
+      ...model.referenceAssets.flatMap(fileWarningFor),
+      ...sourceAssets.flatMap(fileWarningFor),
       ...candidates.flatMap(fileWarningFor)
     ];
 
-    return { profile, references, sessions, candidates, evaluations, criteria, guidance, warnings };
+    return { profile: model.profile, references: model.referenceAssets, model, warnings };
   }
 }
 
-function fileWarningFor(entity: ReferenceAsset | CandidateImage): ExportWarning[] {
+function fileWarningFor(entity: ReferenceAsset | GenerationContextAsset | CandidateImage): ExportWarning[] {
   const warnings: ExportWarning[] = [];
   for (const filePath of [entity.file_path, entity.thumbnail_path]) {
     if (filePath && !existsSync(assetAbsolutePath(filePath))) {
@@ -194,9 +170,9 @@ function hasWarning(warnings: ExportWarning[], entityId: string): boolean {
   return warnings.some((warning) => warning.entity_id === entityId);
 }
 
-function withFileWarningFlag(warnings: ExportWarning[]) {
-  return (reference: ReferenceAsset): ReferenceAsset & { missing_file: boolean } => ({
-    ...reference,
-    missing_file: hasWarning(warnings, reference.id)
+function withFileWarningFlag<T extends { id: string }>(warnings: ExportWarning[]) {
+  return (entity: T): T & { missing_file: boolean } => ({
+    ...entity,
+    missing_file: hasWarning(warnings, entity.id)
   });
 }

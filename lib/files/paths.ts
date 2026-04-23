@@ -63,3 +63,7 @@ export function profileAssetDir(profileId: string, kind: "references" | "session
 export function candidateAssetDir(profileId: string, sessionId: string): string {
   return path.join(getAssetsDir(), "profiles", profileId, "sessions", sessionId, "candidates");
 }
+
+export function generationContextAssetDir(profileId: string, contextId: string, kind: "sources" | "candidates"): string {
+  return path.join(getAssetsDir(), "profiles", profileId, "generation-contexts", contextId, kind);
+}

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db/client";
 import { errorResponse, ok } from "@/lib/api/responses";
+import { GenerationContextService } from "@/lib/services/generation-context-service";
 import type { StyleProfile } from "@/lib/types/domain";
 
 export const runtime = "nodejs";
@@ -25,14 +26,14 @@ export async function POST(request: Request) {
     }
 
     const id = randomUUID();
-    const sessionId = randomUUID();
     const db = getDb();
-    db.transaction(() => {
-      db.prepare("INSERT INTO style_profiles (id, name, description, style_summary) VALUES (?, ?, ?, ?)")
-        .run(id, name, body.description?.trim() || null, "");
-      db.prepare("INSERT INTO evaluation_sessions (id, style_profile_id, name, source_context) VALUES (?, ?, ?, ?)")
-        .run(sessionId, id, "Default evaluation session", null);
-    })();
+    db.prepare("INSERT INTO style_profiles (id, name, description, style_summary) VALUES (?, ?, ?, ?)")
+      .run(id, name, body.description?.trim() || null, "");
+    new GenerationContextService().createContext({
+      styleProfileId: id,
+      name: "Default generation context",
+      generationGoal: null
+    });
 
     return ok({ profile: db.prepare("SELECT * FROM style_profiles WHERE id = ?").get(id) as StyleProfile }, { status: 201 });
   } catch (error) {

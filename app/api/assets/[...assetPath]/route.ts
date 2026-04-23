@@ -12,16 +12,20 @@ const MIME_BY_EXT = new Map([
 ]);
 
 export async function GET(_request: Request, context: { params: Promise<{ assetPath: string[] }> }) {
-  const { assetPath } = await context.params;
-  const relativePath = assetPath.join("/");
-  const absolutePath = assetAbsolutePath(relativePath);
-  const file = await fs.readFile(absolutePath);
-  const ext = path.extname(absolutePath).toLowerCase();
+  try {
+    const { assetPath } = await context.params;
+    const relativePath = assetPath.join("/");
+    const absolutePath = assetAbsolutePath(relativePath);
+    const file = await fs.readFile(absolutePath);
+    const ext = path.extname(absolutePath).toLowerCase();
 
-  return new Response(file, {
-    headers: {
-      "content-type": MIME_BY_EXT.get(ext) || "application/octet-stream",
-      "cache-control": "private, max-age=3600"
-    }
-  });
+    return new Response(file, {
+      headers: {
+        "content-type": MIME_BY_EXT.get(ext) || "application/octet-stream",
+        "cache-control": "private, max-age=3600"
+      }
+    });
+  } catch {
+    return Response.json({ error: "Asset not found." }, { status: 404 });
+  }
 }

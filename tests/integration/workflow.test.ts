@@ -49,8 +49,8 @@ describe("asset evaluator workflow", () => {
     });
     expect(saved.evaluation.evaluation_state).toBe("saved");
 
-    const exported = new ExportBuilder().buildJson(profile.id) as { sessions: Array<{ candidates: unknown[] }> };
-    expect(exported.sessions[0].candidates).toHaveLength(1);
+    const exported = new ExportBuilder().buildJson(profile.id) as { contexts: Array<{ candidates: unknown[] }> };
+    expect(exported.contexts[0].candidates).toHaveLength(1);
     expect(new ExportBuilder().buildMarkdown(profile.id)).toContain("needs_edit");
 
     const candidateFilePath = candidate.file_path;
