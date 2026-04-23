@@ -4,13 +4,14 @@ export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30000,
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: "http://127.0.0.1:3100",
     trace: "on-first-retry"
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
-    url: "http://127.0.0.1:3000/workspace",
-    reuseExistingServer: true,
+    command:
+      "rm -rf tmp/e2e-data && mkdir -p tmp/e2e-data && ASSET_EVALUATOR_DATA_DIR=tmp/e2e-data npm run dev -- --hostname 127.0.0.1 --port 3100",
+    url: "http://127.0.0.1:3100/workspace",
+    reuseExistingServer: false,
     timeout: 120000
   },
   projects: [

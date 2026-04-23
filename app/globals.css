@@ -168,7 +168,7 @@ button {
 .profile-list {
   display: grid;
   gap: 8px;
-  margin-bottom: 18px;
+  margin-top: 8px;
 }
 
 .profile-button {
@@ -200,9 +200,21 @@ button {
   margin-top: 4px;
 }
 
-.create-profile {
+.sidebar-section,
+.create-profile,
+.create-context {
   display: grid;
   gap: 8px;
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 18px;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
 }
 
 .input,
@@ -221,6 +233,10 @@ button {
   min-height: 96px;
   resize: vertical;
   line-height: 1.45;
+}
+
+.compact-textarea {
+  min-height: 76px;
 }
 
 .input:focus,
@@ -288,6 +304,28 @@ button {
   gap: 14px;
 }
 
+.active-context-header h2 {
+  font-size: 17px;
+}
+
+.confidence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.confidence-badge {
+  border: 1px solid rgb(166 106 22 / 35%);
+  border-radius: 999px;
+  background: #fff6e6;
+  color: #734708;
+  padding: 1px 7px;
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -307,6 +345,10 @@ button {
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: 10px;
   margin-top: 12px;
+}
+
+.grid-status {
+  grid-column: 1 / -1;
 }
 
 .asset-tile {
@@ -399,6 +441,10 @@ button {
   gap: 10px;
 }
 
+.form-row.single-column {
+  grid-template-columns: 1fr;
+}
+
 .toggle-row {
   display: flex;
   align-items: center;
@@ -470,6 +516,11 @@ button {
 
 .status {
   color: var(--muted);
+}
+
+.compact-status {
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .status.ok {

@@ -1,135 +1,16 @@
 "use client";
 
-import {
-  Clipboard,
-  Copy,
-  Download,
-  FileImage,
-  ImagePlus,
-  Loader2,
-  Save,
-  Sparkles,
-  Trash2,
-  Upload
-} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-type DecisionLabel = "good" | "needs_edit" | "reject";
-type ConfidenceState = "normal" | "low_confidence";
-
-interface StyleProfile {
-  id: string;
-  name: string;
-  description: string | null;
-  style_summary: string | null;
-  updated_at: string;
-}
-
-interface ReferenceAsset {
-  id: string;
-  asset_type: string;
-  file_path: string;
-  thumbnail_path: string | null;
-  note: string | null;
-  imageUrl: string | null;
-}
-
-interface Session {
-  id: string;
-  name: string;
-}
-
-interface GenerationContext {
-  id: string;
-  style_profile_id: string;
-  name: string;
-  generation_goal: string | null;
-  asset_focus: string;
-  target_use: string | null;
-  source_prompt: string | null;
-  tool_name: string | null;
-  model_name: string | null;
-  updated_at: string;
-  reference_strength: "none" | "weak" | "strong";
-  confidence_reasons: string[];
-  candidate_count: number;
-  saved_judgment_count: number;
-  sourceAssets: ContextSourceAsset[];
-}
-
-interface ContextSourceAsset {
-  id: string;
-  generation_context_id: string;
-  reference_asset_id: string | null;
-  origin: "profile_reference" | "context_upload";
-  asset_type: string;
-  file_path: string;
-  thumbnail_path: string | null;
-  snapshot_note: string | null;
-  imageUrl: string | null;
-}
-
-interface Candidate {
-  id: string;
-  generation_context_id: string;
-  file_path: string;
-  thumbnail_path: string | null;
-  prompt_text: string | null;
-  prompt_missing: 0 | 1;
-  recovery_note: string | null;
-  source_integrity: "complete" | "incomplete";
-  imageUrl: string | null;
-  originalUrl: string | null;
-}
-
-interface Criterion {
-  criterion: string;
-  score: number;
-  reason: string;
-}
-
-interface Evaluation {
-  id: string;
-  fit_score: number;
-  decision_label: DecisionLabel;
-  human_reason: string | null;
-  ai_summary: string | null;
-  confidence_state: ConfidenceState;
-  evaluation_state: "draft" | "saved" | "failed";
-  criteria?: Criterion[];
-  prompt_guidance?: Array<{ guidance_text: string }>;
-}
-
-interface ProfileDetail {
-  profile: StyleProfile;
-  referenceAssets: ReferenceAsset[];
-  generationContexts: GenerationContext[];
-  sessions: Session[];
-  candidates: Candidate[];
-}
-
-interface Draft {
-  evaluation: Evaluation;
-  criteria: Criterion[];
-  next_prompt_guidance: string;
-  weak_reference_set: boolean;
-}
-
-interface HistoryItem {
-  session: Session;
-  generationContext?: GenerationContext;
-  candidate: Candidate;
-  evaluations: Evaluation[];
-}
-
-const assetTypes = [
-  ["card", "Card"],
-  ["coin_reward", "Coin / reward"],
-  ["button_cta", "Button / CTA"],
-  ["background_effect", "Background / effect"],
-  ["character", "Character"],
-  ["other", "Other"]
-];
+import {
+  ActiveContextHeader,
+  CandidatePanel,
+  ContextSidebar,
+  ContextSourceAssets,
+  HistoryPanel,
+  JudgmentPanel,
+  ReferenceAssetsPanel
+} from "./workspace-components";
+import type { Candidate, DecisionLabel, Draft, HistoryItem, ProfileDetail, StyleProfile, WorkspaceStatus } from "./workspace-types";
 
 export function WorkspaceClient() {
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
@@ -145,6 +26,7 @@ export function WorkspaceClient() {
   const [newProfileName, setNewProfileName] = useState("");
   const [newContextName, setNewContextName] = useState("");
   const [generationGoal, setGenerationGoal] = useState("");
+  const [contextPrompt, setContextPrompt] = useState("");
   const [referenceType, setReferenceType] = useState("card");
   const [referenceNote, setReferenceNote] = useState("");
   const [sourceType, setSourceType] = useState("character");
@@ -157,7 +39,7 @@ export function WorkspaceClient() {
   const [humanReason, setHumanReason] = useState("");
   const [guidanceText, setGuidanceText] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [status, setStatus] = useState<{ kind: "ok" | "error" | "info"; text: string } | null>(null);
+  const [status, setStatus] = useState<WorkspaceStatus | null>(null);
 
   const activeContext = useMemo(() => {
     if (!detail?.generationContexts.length) {
@@ -178,7 +60,7 @@ export function WorkspaceClient() {
     setSelectedProfileId((current) => current || data.profiles[0]?.id || null);
   }, []);
 
-  const loadDetail = useCallback(async (profileId: string) => {
+  const loadDetail = useCallback(async (profileId: string, preferredContextId?: string | null) => {
     const [detailResponse, historyResponse] = await Promise.all([
       fetch(`/api/style-profiles/${profileId}`, { cache: "no-store" }),
       fetch(`/api/style-profiles/${profileId}/history`, { cache: "no-store" })
@@ -187,8 +69,9 @@ export function WorkspaceClient() {
     const historyData = (await historyResponse.json()) as { history: HistoryItem[] };
     setDetail(detailData);
     setHistory(historyData.history);
+    const requestedContextId = preferredContextId ?? selectedContextId;
     const nextContext =
-      detailData.generationContexts.find((context) => context.id === selectedContextId) ||
+      detailData.generationContexts.find((context) => context.id === requestedContextId) ||
       detailData.generationContexts[0] ||
       null;
     setSelectedContextId(nextContext?.id || null);
@@ -299,7 +182,7 @@ export function WorkspaceClient() {
           name: newContextName,
           generationGoal,
           assetFocus: sourceType,
-          sourcePrompt: promptText,
+          sourcePrompt: contextPrompt,
           toolName: generationTool
         })
       });
@@ -309,8 +192,9 @@ export function WorkspaceClient() {
       }
       setNewContextName("");
       setGenerationGoal("");
+      setContextPrompt("");
       setSelectedContextId(data.generationContext.id);
-      await loadDetail(selectedProfileId);
+      await loadDetail(selectedProfileId, data.generationContext.id);
       setStatus({ kind: "ok", text: "Generation context created." });
     } catch (error) {
       setStatus({ kind: "error", text: error instanceof Error ? error.message : "Failed to create context." });
@@ -460,9 +344,7 @@ export function WorkspaceClient() {
       setGuidanceText(data.draft.next_prompt_guidance);
       setStatus({
         kind: "ok",
-        text: data.draft.weak_reference_set
-          ? "Draft evaluation saved with weak reference set warning."
-          : "Draft evaluation saved."
+        text: data.draft.weak_reference_set ? "Draft evaluation saved with weak reference set warning." : "Draft evaluation saved."
       });
       if (selectedProfileId) {
         await loadDetail(selectedProfileId);
@@ -579,457 +461,112 @@ export function WorkspaceClient() {
       </div>
 
       <div className="workspace-shell">
-        <aside className="sidebar">
-          <div className="brand-row">
-            <h1>Asset Evaluator</h1>
-            <FileImage size={18} aria-hidden />
-          </div>
+        <ContextSidebar
+          profiles={profiles}
+          selectedProfileId={selectedProfileId}
+          detail={detail}
+          activeContextId={activeContext?.id || null}
+          newProfileName={newProfileName}
+          newContextName={newContextName}
+          generationGoal={generationGoal}
+          contextPrompt={contextPrompt}
+          sourceType={sourceType}
+          generationTool={generationTool}
+          busy={busy}
+          onSelectProfile={(profileId) => {
+            setSelectedProfileId(profileId);
+            setSelectedContextId(null);
+            setCurrentCandidate(null);
+            setDraft(null);
+          }}
+          onSelectContext={(contextId) => {
+            setSelectedContextId(contextId);
+            setCurrentCandidate(null);
+            setDraft(null);
+          }}
+          onNewProfileNameChange={setNewProfileName}
+          onNewContextNameChange={setNewContextName}
+          onGenerationGoalChange={setGenerationGoal}
+          onContextPromptChange={setContextPrompt}
+          onSourceTypeChange={setSourceType}
+          onGenerationToolChange={setGenerationTool}
+          onCreateProfile={createProfile}
+          onCreateContext={createContext}
+        />
 
-          <div className="profile-list" aria-label="Style profiles">
-            {profiles.map((profile) => (
-              <button
-                className={`profile-button ${profile.id === selectedProfileId ? "is-active" : ""}`}
-                key={profile.id}
-                onClick={() => {
-                  setSelectedProfileId(profile.id);
-                  setSelectedContextId(null);
-                  setCurrentCandidate(null);
-                }}
-              >
-                <strong>{profile.name}</strong>
-                <span>{profile.description || "Reusable visual judgment memory"}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="create-profile">
-            <label className="section-title" htmlFor="profile-name">
-              New profile
-            </label>
-            <input
-              id="profile-name"
-              className="input"
-              value={newProfileName}
-              onChange={(event) => setNewProfileName(event.target.value)}
-              placeholder="Puzzle reward bright casual"
-            />
-            <button className="button secondary" onClick={createProfile} disabled={busy === "profile"}>
-              <Save size={16} aria-hidden /> Create
-            </button>
-          </div>
-
-          {detail ? (
-            <div className="create-profile" style={{ marginTop: 18 }}>
-              <label className="section-title">Generation contexts</label>
-              <div className="profile-list" aria-label="Generation contexts">
-                {detail.generationContexts.map((context) => (
-                  <button
-                    className={`profile-button ${context.id === activeContext?.id ? "is-active" : ""}`}
-                    key={context.id}
-                    onClick={() => {
-                      setSelectedContextId(context.id);
-                      setCurrentCandidate(null);
-                    }}
-                  >
-                    <strong>{context.name}</strong>
-                    <span>
-                      {context.reference_strength} · {context.candidate_count} candidates ·{" "}
-                      {context.saved_judgment_count} saved
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <input
-                className="input"
-                value={newContextName}
-                onChange={(event) => setNewContextName(event.target.value)}
-                placeholder="Emotion batch 01"
-              />
-              <textarea
-                className="textarea"
-                value={generationGoal}
-                onChange={(event) => setGenerationGoal(event.target.value)}
-                placeholder="Generation goal"
-              />
-              <button className="button secondary" onClick={createContext} disabled={busy === "context"}>
-                <Save size={16} aria-hidden /> Context
-              </button>
-            </div>
-          ) : null}
-        </aside>
-
-        <section className="main-workspace">
+        <section className="main-workspace" aria-label="Generation context workspace">
           <div className="stack">
-            <div className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>{activeContext?.name || detail?.profile.name || "Generation context"}</h2>
-                  <div className="microcopy">
-                    {activeContext?.generation_goal || detail?.profile.style_summary || "No saved generation context yet."}
-                  </div>
-                  {activeContext ? (
-                    <div className="microcopy">
-                      {activeContext.asset_focus} · {activeContext.reference_strength} reference strength
-                      {activeContext.confidence_reasons.length
-                        ? ` · ${activeContext.confidence_reasons.join(", ")}`
-                        : ""}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="toolbar">
-                  {selectedProfileId ? (
-                    <>
-                      <a className="button secondary" href={`/api/style-profiles/${selectedProfileId}/export.json`}>
-                        <Download size={16} aria-hidden /> JSON
-                      </a>
-                      <a className="button secondary" href={`/api/style-profiles/${selectedProfileId}/export.md`}>
-                        <Download size={16} aria-hidden /> MD
-                      </a>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-            </div>
+            <ActiveContextHeader activeContext={activeContext} profile={detail?.profile} selectedProfileId={selectedProfileId} />
 
-            <section className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Context source assets</h2>
-                  <div className="microcopy">Assets actually used for this generation context.</div>
-                </div>
-                <button
-                  className="button secondary icon-button"
-                  onClick={() => sourceInputRef.current?.click()}
-                  disabled={!activeContext}
-                >
-                  <Upload size={16} aria-label="Upload context source assets" />
-                </button>
-              </div>
-              <div className="form-row" style={{ marginTop: 12 }}>
-                <select className="select" value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
-                  {assetTypes.map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="input"
-                  value={sourceNote}
-                  onChange={(event) => setSourceNote(event.target.value)}
-                  placeholder="Source note"
-                />
-              </div>
-              <input
-                className="hidden-input"
-                ref={sourceInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                multiple
-                onChange={(event) => uploadContextSources(event.target.files)}
-              />
-              <div className="reference-grid">
-                {activeContext?.sourceAssets.map((asset) => (
-                  <div className="asset-tile" key={asset.id}>
-                    <div className="asset-thumb">
-                      {asset.imageUrl ? <img src={asset.imageUrl} alt={asset.snapshot_note || asset.asset_type} /> : null}
-                    </div>
-                    <div className="asset-meta">
-                      <strong>{asset.origin}</strong>
-                      <div>{asset.snapshot_note || asset.asset_type}</div>
-                    </div>
-                  </div>
-                ))}
-                {activeContext && activeContext.sourceAssets.length === 0 ? (
-                  <div className="status">Add the assets you actually used for this generation.</div>
-                ) : null}
-              </div>
-            </section>
+            <ContextSourceAssets
+              activeContext={activeContext}
+              sourceInputRef={sourceInputRef}
+              sourceType={sourceType}
+              sourceNote={sourceNote}
+              busy={busy}
+              onSourceTypeChange={setSourceType}
+              onSourceNoteChange={setSourceNote}
+              onUploadContextSources={uploadContextSources}
+            />
 
             <div className="comparison-grid">
-              <section className="panel">
-                <div className="panel-header">
-                  <h2>Reference assets</h2>
-                  <button className="button secondary icon-button" onClick={() => referenceInputRef.current?.click()}>
-                    <Upload size={16} aria-label="Upload reference assets" />
-                  </button>
-                </div>
-                <div className="form-row" style={{ marginTop: 12 }}>
-                  <select className="select" value={referenceType} onChange={(event) => setReferenceType(event.target.value)}>
-                    {assetTypes.map(([value, label]) => (
-                      <option value={value} key={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className="input"
-                    value={referenceNote}
-                    onChange={(event) => setReferenceNote(event.target.value)}
-                    placeholder="Optional note"
-                  />
-                </div>
-                <input
-                  className="hidden-input"
-                  ref={referenceInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  multiple
-                  onChange={(event) => uploadReferences(event.target.files)}
-                />
-                <div className="reference-grid">
-                  {detail?.referenceAssets.map((asset) => (
-                    <div className="asset-tile" key={asset.id}>
-                      <div className="asset-thumb">
-                        {asset.imageUrl ? <img src={asset.imageUrl} alt={asset.note || asset.asset_type} /> : null}
-                      </div>
-                      <div className="asset-meta">
-                        <div className="asset-meta-header">
-                          <strong>{asset.asset_type}</strong>
-                          <div className="toolbar">
-                            <button
-                              className="small-icon-button"
-                              onClick={() => addProfileReferenceToContext(asset.id)}
-                              disabled={!activeContext || busy === `source-add-${asset.id}`}
-                              title="Use as context source"
-                            >
-                              <ImagePlus size={14} aria-label="Use as context source" />
-                            </button>
-                            <button
-                              className="small-icon-button"
-                              onClick={() => deleteReferenceAsset(asset.id)}
-                              disabled={busy === `reference-delete-${asset.id}`}
-                              title="Remove reference"
-                            >
-                              <Trash2 size={14} aria-label="Remove reference" />
-                            </button>
-                          </div>
-                        </div>
-                        <div>{asset.note || "No note"}</div>
-                      </div>
-                    </div>
-                  ))}
-                  {detail?.referenceAssets.length === 0 ? (
-                    <div className="status">Upload 3-8 reference images to make evaluator guidance stronger.</div>
-                  ) : null}
-                </div>
-              </section>
+              <ReferenceAssetsPanel
+                detail={detail}
+                referenceInputRef={referenceInputRef}
+                referenceType={referenceType}
+                referenceNote={referenceNote}
+                activeContext={activeContext}
+                busy={busy}
+                onReferenceTypeChange={setReferenceType}
+                onReferenceNoteChange={setReferenceNote}
+                onUploadReferences={uploadReferences}
+                onAddProfileReferenceToContext={addProfileReferenceToContext}
+                onDeleteReferenceAsset={deleteReferenceAsset}
+              />
 
-              <section className="panel">
-                <div className="panel-header">
-                  <h2>Candidate image</h2>
-                  <div className="toolbar">
-                    {currentCandidate ? (
-                      <button
-                        className="button secondary icon-button danger-outline"
-                        onClick={deleteCurrentCandidate}
-                        disabled={busy === "candidate-delete"}
-                        title="Remove candidate"
-                      >
-                        <Trash2 size={16} aria-label="Remove candidate" />
-                      </button>
-                    ) : null}
-                    <button className="button secondary icon-button" onClick={() => candidateInputRef.current?.click()}>
-                      <ImagePlus size={16} aria-label="Upload candidate image" />
-                    </button>
-                  </div>
-                </div>
-                <input
-                  className="hidden-input"
-                  ref={candidateInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                      uploadCandidate(file).catch((error) =>
-                        setStatus({ kind: "error", text: error instanceof Error ? error.message : "Upload failed." })
-                      );
-                    }
-                  }}
-                />
-                <div style={{ marginTop: 12 }}>
-                  {currentCandidate?.originalUrl ? (
-                    <div className="candidate-viewer">
-                      <img src={currentCandidate.originalUrl} alt="Current candidate" />
-                    </div>
-                  ) : (
-                    <div className="candidate-drop">
-                      <div>
-                        <Clipboard size={28} aria-hidden />
-                        <p>Paste an image or upload a candidate.</p>
-                        <p className="microcopy">PNG, JPEG, and WebP. SVG is blocked in v1.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="candidate-actions" style={{ marginTop: 12 }}>
-                  <textarea
-                    className="textarea"
-                    value={promptText}
-                    onChange={(event) => {
-                      setPromptText(event.target.value);
-                      if (event.target.value.trim()) {
-                        setPromptMissing(false);
-                      }
-                    }}
-                    placeholder="Prompt used to generate this candidate"
-                  />
-                  <div className="form-row">
-                    <input
-                      className="input"
-                      value={generationTool}
-                      onChange={(event) => setGenerationTool(event.target.value)}
-                      placeholder="Generation tool"
-                    />
-                    <label className="toggle-row">
-                      <input
-                        type="checkbox"
-                        checked={promptMissing}
-                        onChange={(event) => setPromptMissing(event.target.checked)}
-                      />
-                      Prompt missing
-                    </label>
-                  </div>
-                  {promptMissing ? (
-                    <textarea
-                      className="textarea"
-                      value={recoveryNote}
-                      onChange={(event) => setRecoveryNote(event.target.value)}
-                      placeholder="Recovery note: what do you remember about the generation intent?"
-                    />
-                  ) : null}
-                </div>
-              </section>
+              <CandidatePanel
+                currentCandidate={currentCandidate}
+                candidateInputRef={candidateInputRef}
+                promptText={promptText}
+                promptMissing={promptMissing}
+                recoveryNote={recoveryNote}
+                generationTool={generationTool}
+                busy={busy}
+                onPromptTextChange={setPromptText}
+                onPromptMissingChange={setPromptMissing}
+                onRecoveryNoteChange={setRecoveryNote}
+                onGenerationToolChange={setGenerationTool}
+                onUploadCandidate={(file) =>
+                  uploadCandidate(file).catch((error) =>
+                    setStatus({ kind: "error", text: error instanceof Error ? error.message : "Upload failed." })
+                  )
+                }
+                onDeleteCurrentCandidate={deleteCurrentCandidate}
+              />
             </div>
 
-            <section className="panel">
-              <div className="panel-header">
-                <h2>History</h2>
-                <span className="microcopy">{savedEvaluations.length} saved judgments</span>
-              </div>
-              <div className="history-list" style={{ marginTop: 12 }}>
-                {history.map((item) => {
-                  const evaluation = item.evaluations[0];
-                  return (
-                    <button className="history-item" key={item.candidate.id} onClick={() => selectCandidate(item.candidate)}>
-                      <strong>{item.generationContext?.name || item.session.name}</strong>
-                      <span>
-                        {evaluation ? (
-                          <>
-                            <span className={`decision-${evaluation.decision_label}`}>{evaluation.decision_label}</span> ·{" "}
-                            {evaluation.fit_score} · {evaluation.confidence_state}
-                          </>
-                        ) : (
-                          "No evaluation yet"
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-                {history.length === 0 ? <div className="status">No candidates saved yet.</div> : null}
-              </div>
-            </section>
+            <HistoryPanel history={history} savedEvaluationCount={savedEvaluations.length} onSelectCandidate={selectCandidate} />
           </div>
         </section>
 
-        <aside className="inspector">
-          <div className="stack">
-            <div className="panel-header">
-              <h2>Judgment</h2>
-              <Sparkles size={18} aria-hidden />
-            </div>
-
-            {status ? <div className={`status ${status.kind === "info" ? "" : status.kind}`}>{status.text}</div> : null}
-
-            {activeContext && activeContext.reference_strength !== "strong" ? (
-              <div className="warning">
-                Weak context source set: add source assets or prompt details for stronger evaluator guidance.
-              </div>
-            ) : null}
-
-            {activeEvaluation ? (
-              <div className="score-box">
-                <div className="score-number">{activeEvaluation.fit_score}</div>
-                <div>
-                  <strong>{activeEvaluation.decision_label}</strong>
-                  <p className="microcopy">{activeEvaluation.ai_summary}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="status">Run evaluation to create a draft, or save a manual judgment directly.</div>
-            )}
-
-            <button className="button" onClick={evaluateCandidate} disabled={!currentCandidate || busy === "evaluate"}>
-              {busy === "evaluate" ? <Loader2 size={16} aria-hidden /> : <Sparkles size={16} aria-hidden />}
-              Evaluate candidate
-            </button>
-
-            {draft?.weak_reference_set ? (
-              <div className="warning">Evaluation allowed, but marked weak because fewer than 3 references exist.</div>
-            ) : null}
-
-            {activeCriteria.length > 0 ? (
-              <div className="criterion-list">
-                {activeCriteria.map((criterion) => (
-                  <div className="criterion-row" key={criterion.criterion}>
-                    <strong>
-                      {criterion.criterion} · {criterion.score}
-                    </strong>
-                    <span>{criterion.reason}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            <div className="form-grid">
-              <label className="section-title" htmlFor="decision">
-                Human decision
-              </label>
-              <select
-                id="decision"
-                className="select"
-                value={decisionLabel}
-                onChange={(event) => setDecisionLabel(event.target.value as DecisionLabel)}
-              >
-                <option value="good">Good</option>
-                <option value="needs_edit">Needs edit</option>
-                <option value="reject">Reject</option>
-              </select>
-
-              <label className="section-title" htmlFor="human-reason">
-                Human reason
-              </label>
-              <textarea
-                id="human-reason"
-                className="textarea"
-                value={humanReason}
-                onChange={(event) => setHumanReason(event.target.value)}
-                placeholder="Why is this usable, fixable, or wrong for this playable?"
-              />
-
-              <label className="section-title" htmlFor="guidance">
-                Next prompt guidance
-              </label>
-              <textarea
-                id="guidance"
-                className="textarea"
-                value={guidanceText}
-                onChange={(event) => setGuidanceText(event.target.value)}
-                placeholder="Reusable guidance for the next generation"
-              />
-
-              <div className="form-row">
-                <button className="button secondary" onClick={copyGuidance} disabled={!guidanceText.trim()}>
-                  <Copy size={16} aria-hidden /> Copy
-                </button>
-                <button className="button" onClick={saveJudgment} disabled={!currentCandidate || busy === "save"}>
-                  <Save size={16} aria-hidden /> Save
-                </button>
-              </div>
-            </div>
-          </div>
-        </aside>
+        <JudgmentPanel
+          status={status}
+          activeContext={activeContext}
+          activeEvaluation={activeEvaluation}
+          activeCriteria={activeCriteria}
+          draft={draft}
+          currentCandidate={currentCandidate}
+          busy={busy}
+          decisionLabel={decisionLabel}
+          humanReason={humanReason}
+          guidanceText={guidanceText}
+          onEvaluateCandidate={evaluateCandidate}
+          onDecisionLabelChange={setDecisionLabel}
+          onHumanReasonChange={setHumanReason}
+          onGuidanceTextChange={setGuidanceText}
+          onCopyGuidance={copyGuidance}
+          onSaveJudgment={saveJudgment}
+        />
       </div>
     </main>
   );
