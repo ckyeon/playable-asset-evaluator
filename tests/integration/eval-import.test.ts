@@ -33,7 +33,7 @@ describe("eval manifest import", () => {
     expect(existsSync(getAssetsDir())).toBe(false);
   });
 
-  it("rejects traversal and missing-file manifests before staging", async () => {
+  it("rejects traversal, absolute, and missing-file manifests before staging", async () => {
     const traversalDataset = createDataset("traversal-dataset", {
       name: "Traversal dataset",
       status: "ready",
@@ -49,6 +49,37 @@ describe("eval manifest import", () => {
               id: "source-1",
               asset_type: "character",
               image_path: "../escape.png",
+              note: "This should be rejected."
+            }
+          ],
+          candidates: [
+            {
+              id: "candidate-1",
+              image_path: "assets/candidates/candidate-1.png",
+              expected_decision: "good",
+              human_reason: "placeholder reason for validation",
+              prompt_missing: false
+            }
+          ]
+        }
+      ]
+    });
+
+    const absolutePathDataset = createDataset("absolute-path-dataset", {
+      name: "Absolute path dataset",
+      status: "ready",
+      asset_focus: "character",
+      evaluation_goal: "style_match",
+      contexts: [
+        {
+          id: "context-1",
+          name: "Absolute path context",
+          generation_goal: "Absolute paths should fail.",
+          source_assets: [
+            {
+              id: "source-1",
+              asset_type: "character",
+              image_path: path.join(tmpdir(), "outside-dataset.png"),
               note: "This should be rejected."
             }
           ],
@@ -111,6 +142,19 @@ describe("eval manifest import", () => {
       });
 
       writeFixtureAsset(
+        absolutePathDataset,
+        "assets/candidates/candidate-1.png",
+        path.join(aiDatasetRoot, "assets/candidates/cand-01-nervous-clasped-hands.png")
+      );
+      await expect(new EvalManifestImporter().importDataset(absolutePathDataset, { dryRun: true })).rejects.toMatchObject({
+        result: expect.objectContaining({
+          status: "rejected",
+          failed_item_path: path.join(tmpdir(), "outside-dataset.png"),
+          copied_files: []
+        })
+      });
+
+      writeFixtureAsset(
         missingFileDataset,
         "assets/candidates/candidate-1.png",
         path.join(aiDatasetRoot, "assets/candidates/cand-01-nervous-clasped-hands.png")
@@ -124,7 +168,93 @@ describe("eval manifest import", () => {
       });
     } finally {
       rmSync(traversalDataset, { recursive: true, force: true });
+      rmSync(absolutePathDataset, { recursive: true, force: true });
       rmSync(missingFileDataset, { recursive: true, force: true });
+    }
+  });
+
+  it("imports prompt-missing candidates as low confidence with warnings", async () => {
+    useTempDataDir();
+    const dataset = createDataset("prompt-missing-dataset", {
+      name: "Prompt missing dataset",
+      status: "ready",
+      asset_focus: "character",
+      evaluation_goal: "style_match",
+      contexts: [
+        {
+          id: "context-1",
+          name: "Prompt missing context",
+          generation_goal: "Import a candidate whose original prompt was not saved.",
+          source_prompt: "Generate a matching character expression.",
+          source_assets: [
+            {
+              id: "source-1",
+              asset_type: "character",
+              image_path: "assets/references/source-1.png",
+              note: "Reference character pose and rendering style."
+            }
+          ],
+          candidates: [
+            {
+              id: "candidate-1",
+              image_path: "assets/candidates/candidate-1.png",
+              expected_decision: "needs_edit",
+              human_reason: "The character is usable but needs cleaner expression matching before production use.",
+              prompt_missing: true
+            }
+          ]
+        }
+      ]
+    });
+
+    try {
+      writeFixtureAsset(
+        dataset,
+        "assets/references/source-1.png",
+        path.join(aiDatasetRoot, "assets/references/ref-01-couch-hand-cover.png")
+      );
+      writeFixtureAsset(
+        dataset,
+        "assets/candidates/candidate-1.png",
+        path.join(aiDatasetRoot, "assets/candidates/cand-05-awkward-head-scratch.png")
+      );
+
+      const result = await new EvalManifestImporter().importDataset(dataset);
+
+      expect(result.status).toBe("imported");
+      expect(result.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "prompt_missing_low_confidence", item_id: "candidate-1" }),
+          expect.objectContaining({ code: "missing_recovery_note", item_id: "candidate-1" })
+        ])
+      );
+
+      const db = getDb();
+      const candidate = db
+        .prepare("SELECT prompt_text, prompt_missing, source_integrity, recovery_note FROM candidate_images")
+        .get() as {
+        prompt_text: string | null;
+        prompt_missing: 0 | 1;
+        source_integrity: string;
+        recovery_note: string | null;
+      };
+      expect(candidate).toMatchObject({
+        prompt_text: null,
+        prompt_missing: 1,
+        source_integrity: "incomplete",
+        recovery_note: null
+      });
+
+      const evaluation = db.prepare("SELECT confidence_state, fit_score FROM evaluations").get() as {
+        confidence_state: string;
+        fit_score: number;
+      };
+      expect(evaluation).toMatchObject({
+        confidence_state: "low_confidence",
+        fit_score: 64
+      });
+    } finally {
+      rmSync(dataset, { recursive: true, force: true });
     }
   });
 

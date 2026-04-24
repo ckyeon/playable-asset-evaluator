@@ -77,13 +77,15 @@ Depends on / blocked by: Generation Context implementation.
 
 ### Build AI Character Chat character eval baseline
 
-Status: Done. The ready dataset, copied eval images, and integrity test exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.
+Status: Done. The ready dataset, copied eval images, integrity test, and `eval:import` dogfood path exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.
 
 What: Use AI Character Chat character assets as the first real v1 evaluator baseline: 8 reference images, 10 candidate images, expected `Good / Needs edit / Reject` labels, style tags, risk tags, and one-sentence human reasons.
 
 Why: This gives the evaluator a concrete style-match baseline before live model integration, using the actual character-chat workflow the product should support next.
 
 Next: Use this dataset as the first prompt/model regression gate when replacing the mock evaluator with a live multimodal adapter.
+
+Import check: `npm run eval:import -- tests/evals/ai-character-chat --dry-run` reports 1 style profile, 1 generation context, 8 source assets, 10 candidates, and 10 saved evaluations.
 
 ### Build Matgo -> Slot tiny eval dataset
 
