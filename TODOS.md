@@ -19,7 +19,7 @@ Cons:
 - Adds one more planning artifact before production UI implementation.
 - Should be kept short enough that it guides implementation instead of becoming design theater.
 
-Context: `/plan-design-review` added minimal design tokens to the approved plan, but the repo has no `DESIGN.md` yet. Create it before building the production UI.
+Context: `/plan-design-review` added minimal design tokens to the approved plan. `DESIGN.md` now exists and is the source of truth for the production workspace UI.
 
 Depends on / blocked by: Approved design doc at `/Users/ckyeon/.gstack/projects/asset-evaluator/ckyeon-unknown-design-20260423-182116.md`.
 

@@ -51,3 +51,8 @@ npm run test
 ```
 
 The AI Character Chat baseline is the first ready dogfood dataset: 8 source assets, 10 candidates, and 10 saved judgments.
+
+## Project Docs
+
+- [DESIGN.md](DESIGN.md) defines the desktop workspace layout, visual tokens, and interaction states.
+- [TODOS.md](TODOS.md) tracks deferred follow-up work such as removing deprecated session API aliases and Prompt Revision Chain.
