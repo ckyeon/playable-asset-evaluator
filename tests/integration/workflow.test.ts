@@ -14,7 +14,7 @@ describe("asset evaluator workflow", () => {
     process.env.EVALUATION_MODEL = "mock-evaluator-v1";
     const db = getDb();
     const profile = db.prepare("SELECT id FROM style_profiles LIMIT 1").get() as { id: string };
-    const session = db.prepare("SELECT id FROM evaluation_sessions LIMIT 1").get() as { id: string };
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
     const storage = new AssetStorage();
     const references: Array<{ id: string; file_path: string; thumbnail_path: string | null }> = [];
 
@@ -31,7 +31,7 @@ describe("asset evaluator workflow", () => {
     }
 
     const candidate = await storage.saveCandidateImage({
-      sessionId: session.id,
+      generationContextId: generationContext.id,
       file: await createImageFile("candidate.webp", "image/webp", "#d89126"),
       promptText: "Create a bright Korean card casino slot reward symbol."
     });

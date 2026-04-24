@@ -48,14 +48,6 @@ export interface ReferenceAsset {
   created_at: string;
 }
 
-export interface EvaluationSession {
-  id: string;
-  style_profile_id: string;
-  name: string;
-  source_context: string | null;
-  created_at: string;
-}
-
 export interface GenerationContext {
   id: string;
   style_profile_id: string;

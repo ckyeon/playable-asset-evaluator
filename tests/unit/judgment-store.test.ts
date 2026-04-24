@@ -8,9 +8,9 @@ describe("JudgmentStore", () => {
   it("requires a human reason before saving", async () => {
     useTempDataDir();
     const db = getDb();
-    const session = db.prepare("SELECT id FROM evaluation_sessions LIMIT 1").get() as { id: string };
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
     const candidate = await new AssetStorage().saveCandidateImage({
-      sessionId: session.id,
+      generationContextId: generationContext.id,
       file: await createImageFile("candidate.png"),
       promptText: "bright slot icon"
     });
@@ -27,9 +27,9 @@ describe("JudgmentStore", () => {
   it("allows prompt-missing judgment only with a recovery note and marks low confidence", async () => {
     useTempDataDir();
     const db = getDb();
-    const session = db.prepare("SELECT id FROM evaluation_sessions LIMIT 1").get() as { id: string };
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
     const candidate = await new AssetStorage().saveCandidateImage({
-      sessionId: session.id,
+      generationContextId: generationContext.id,
       file: await createImageFile("candidate.png"),
       promptMissing: true
     });

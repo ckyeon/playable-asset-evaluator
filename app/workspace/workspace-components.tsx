@@ -587,7 +587,7 @@ export function HistoryPanel({ history, savedEvaluationCount, onSelectCandidate 
           const evaluation = item.evaluations[0];
           return (
             <button className="history-item" key={item.candidate.id} onClick={() => onSelectCandidate(item.candidate)}>
-              <strong>{item.generationContext?.name || item.session.name}</strong>
+              <strong>{item.generationContext.name}</strong>
               <span>
                 {evaluation ? (
                   <>

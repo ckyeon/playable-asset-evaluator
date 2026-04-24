@@ -18,11 +18,6 @@ export interface ReferenceAsset {
   imageUrl: string | null;
 }
 
-export interface Session {
-  id: string;
-  name: string;
-}
-
 export interface GenerationContext {
   id: string;
   style_profile_id: string;
@@ -88,7 +83,6 @@ export interface ProfileDetail {
   profile: StyleProfile;
   referenceAssets: ReferenceAsset[];
   generationContexts: GenerationContext[];
-  sessions: Session[];
   candidates: Candidate[];
 }
 
@@ -100,8 +94,21 @@ export interface Draft {
 }
 
 export interface HistoryItem {
-  session: Session;
-  generationContext?: GenerationContext;
+  generationContext: {
+    id: string;
+    style_profile_id: string;
+    name: string;
+    generation_goal: string | null;
+    asset_focus: string;
+    target_use: string | null;
+    source_prompt: string | null;
+    tool_name: string | null;
+    model_name: string | null;
+    created_at: string;
+    updated_at: string;
+    reference_strength: "none" | "weak" | "strong";
+    confidence_reasons: string[];
+  };
   candidate: Candidate;
   evaluations: Evaluation[];
 }

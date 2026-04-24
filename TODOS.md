@@ -27,7 +27,7 @@ Depends on / blocked by: Approved design doc at `/Users/ckyeon/.gstack/projects/
 
 ### Remove deprecated sessions API aliases
 
-Status: Planned. Added by `/plan-ceo-review` for the Generation Context amendment.
+Status: Done. The deprecated HTTP routes and app response shapes now use only Generation Context APIs.
 
 What: Remove the deprecated `/api/sessions` and `/api/sessions/:id/candidates` aliases after the UI, tests, eval import script, and docs all use generation-context routes.
 
@@ -42,13 +42,23 @@ Cons:
 - Requires checking all callers before removal.
 - Can break any local scripts still using the old route names.
 
-Context: `/plan-ceo-review` selected full migration from `evaluation_sessions` to `generation_contexts` with old session routes kept only as thin deprecated aliases. This TODO should be executed after implementation proves no app/test/import callers depend on old session routes.
+Context: `/plan-ceo-review` selected full migration from `evaluation_sessions` to `generation_contexts` with old session routes kept only as thin deprecated aliases. The SQLite `evaluation_sessions` table remains intentionally for local DB migration/backfill safety and should be retired only by a dedicated schema cleanup.
 
 Effort estimate: S human -> S with CC+gstack.
 
 Priority: P2.
 
 Depends on / blocked by: Generation Context implementation and route migration.
+
+### Retire legacy evaluation_sessions DB compatibility
+
+Status: Deferred. Keep this separate from API alias removal so existing local databases stay protected.
+
+What: Remove the legacy `evaluation_sessions` table, seed writes, and migration backfill path after a dedicated compatibility review.
+
+Why: The product runtime now treats `generation_contexts` as the source of truth, but schema cleanup needs a safer migration boundary than the HTTP alias removal.
+
+Priority: P2.
 
 ### Build Prompt Revision Chain
 

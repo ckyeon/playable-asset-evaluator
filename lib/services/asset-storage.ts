@@ -12,8 +12,7 @@ interface SaveReferenceInput {
 }
 
 interface SaveCandidateInput {
-  generationContextId?: string;
-  sessionId?: string;
+  generationContextId: string;
   file: File;
   promptText?: string | null;
   promptMissing?: boolean;
@@ -63,14 +62,13 @@ export class AssetStorage {
 
   async saveCandidateImage(input: SaveCandidateInput): Promise<CandidateImage> {
     const db = getDb();
-    const generationContextId = input.generationContextId || input.sessionId;
-    if (!generationContextId) {
+    if (!input.generationContextId) {
       throw new Error("Generation context id is required.");
     }
 
     const context = db
       .prepare("SELECT * FROM generation_contexts WHERE id = ?")
-      .get(generationContextId) as GenerationContext | undefined;
+      .get(input.generationContextId) as GenerationContext | undefined;
 
     if (!context) {
       throw new Error("Generation context not found.");

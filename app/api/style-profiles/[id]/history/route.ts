@@ -15,13 +15,6 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
           reference_strength: context.reference_strength,
           confidence_reasons: context.confidence_reasons
         },
-        session: {
-          id: context.context.id,
-          style_profile_id: context.context.style_profile_id,
-          name: context.context.name,
-          source_context: context.context.generation_goal,
-          created_at: context.context.created_at
-        },
         candidate: {
           ...candidate,
           imageUrl: toAssetUrl(candidate.thumbnail_path || candidate.file_path),

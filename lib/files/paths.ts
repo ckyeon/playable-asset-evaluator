@@ -56,12 +56,8 @@ export function toAssetUrl(relativePath: string | null): string | null {
     .join("/")}`;
 }
 
-export function profileAssetDir(profileId: string, kind: "references" | "sessions"): string {
+export function profileAssetDir(profileId: string, kind: "references"): string {
   return path.join(getAssetsDir(), "profiles", profileId, kind);
-}
-
-export function candidateAssetDir(profileId: string, sessionId: string): string {
-  return path.join(getAssetsDir(), "profiles", profileId, "sessions", sessionId, "candidates");
 }
 
 export function generationContextAssetDir(profileId: string, contextId: string, kind: "sources" | "candidates"): string {

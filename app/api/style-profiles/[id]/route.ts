@@ -28,13 +28,6 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
           candidate.evaluations.filter((evaluation) => evaluation.evaluation_state === "saved")
         ).length
       })),
-      sessions: data.contexts.map((context) => ({
-        id: context.context.id,
-        style_profile_id: context.context.style_profile_id,
-        name: context.context.name,
-        source_context: context.context.generation_goal,
-        created_at: context.context.created_at
-      })),
       candidates: data.contexts.flatMap((context) =>
         context.candidates.map(({ candidate }) => ({
           ...candidate,
