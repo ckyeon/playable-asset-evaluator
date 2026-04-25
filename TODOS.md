@@ -85,6 +85,31 @@ Priority: P2.
 
 Depends on / blocked by: Generation Context implementation.
 
+### Build reusable winning prompt snippets
+
+Status: Deferred by `/plan-ceo-review` for Prompt Revision Chain. Build after revision lineage and effectiveness badges have real saved outcomes.
+
+What: Promote repeated successful prompt guidance into a style-profile-level snippet library that can be reused in future generation contexts.
+
+Why: Once Prompt Revision Chain proves which guidance improves results, repeated winning edits should become reusable creative memory instead of staying buried in history.
+
+Pros:
+- Turns repeated successful prompt edits into a reusable asset.
+- Gives future recommendation features grounded evidence instead of vibes.
+- Helps users start the next generation attempt from proven guidance.
+
+Cons:
+- Weak before enough revision data exists.
+- Can look smarter than it is if built before the app has real saved outcomes.
+
+Context: The Prompt Revision Chain CEO review accepted first-class prompt revisions, parameter snapshots, revision forks, effectiveness badges, eval manifest revision support, and a compact revision tree UI. Snippet promotion should wait until those features produce enough saved outcomes to identify real repeated wins.
+
+Effort estimate: M human -> S with CC+gstack.
+
+Priority: P2.
+
+Depends on / blocked by: Prompt Revision Chain implementation and enough saved revision outcomes.
+
 ### Build AI Character Chat character eval baseline
 
 Status: Done. The ready dataset, copied eval images, integrity test, and `eval:import` dogfood path exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.
