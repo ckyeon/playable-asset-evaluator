@@ -14,6 +14,7 @@ interface SaveReferenceInput {
 interface SaveCandidateInput {
   generationContextId: string;
   file: File;
+  promptRevisionId?: string | null;
   promptText?: string | null;
   promptMissing?: boolean;
   recoveryNote?: string | null;
@@ -84,11 +85,12 @@ export class AssetStorage {
     try {
       db.prepare(
         `INSERT INTO candidate_images
-          (id, generation_context_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (id, generation_context_id, prompt_revision_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         stored.id,
         context.id,
+        input.promptRevisionId?.trim() || null,
         stored.filePath,
         stored.thumbnailPath,
         input.generationTool?.trim() || null,

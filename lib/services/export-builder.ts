@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs";
 import { assetAbsolutePath } from "@/lib/files/paths";
-import { loadProfileContextReadModel, type ProfileContextReadModel } from "@/lib/services/profile-context-read-model";
+import {
+  loadProfileContextReadModel,
+  type ProfileContextReadModel,
+  type PromptRevisionReadModel
+} from "@/lib/services/profile-context-read-model";
 import type {
   CandidateImage,
   GenerationContextAsset,
@@ -27,9 +31,11 @@ export class ExportBuilder {
         reference_strength: context.reference_strength,
         confidence_reasons: context.confidence_reasons,
         source_assets: context.sourceAssets.map(withFileWarningFlag(data.warnings)),
-        candidates: context.candidates.map(({ candidate, evaluations }) => ({
+        prompt_revisions: context.promptRevisions,
+        candidates: context.candidates.map(({ candidate, promptRevision, evaluations }) => ({
           ...candidate,
           missing_file: hasWarning(data.warnings, candidate.id),
+          prompt_revision: promptRevision,
           evaluations
         }))
       }))
@@ -50,7 +56,14 @@ export class ExportBuilder {
         reference_strength: string;
         confidence_reasons: string[];
         source_assets: Array<GenerationContextAsset & { missing_file: boolean }>;
-        candidates: Array<CandidateImage & { missing_file: boolean; evaluations: Array<any> }>;
+        prompt_revisions: PromptRevisionReadModel[];
+        candidates: Array<
+          CandidateImage & {
+            missing_file: boolean;
+            prompt_revision: PromptRevisionReadModel | null;
+            evaluations: Array<any>;
+          }
+        >;
       }>;
     };
 
@@ -95,12 +108,25 @@ export class ExportBuilder {
           }${sourceAsset.snapshot_note ? ` - ${sourceAsset.snapshot_note}` : ""}`
         );
       }
+      lines.push("", "### Prompt Revisions", "");
+      if (context.prompt_revisions.length === 0) {
+        lines.push("- (none)");
+      }
+      for (const revision of context.prompt_revisions) {
+        lines.push(
+          `- ${revision.id}${revision.revision_label ? ` (${revision.revision_label})` : ""}: ${revision.effectiveness} (${revision.effectiveness_reason})`,
+          `  - Parent: ${revision.parent_prompt_revision_id || "(root)"}`,
+          `  - Candidates: ${revision.candidate_count}`,
+          `  - Prompt: ${promptPreview(revision.prompt_text)}`
+        );
+      }
       for (const candidate of context.candidates) {
         lines.push(
           "",
           `### Candidate ${candidate.id}`,
           "",
           `- Image: ${candidate.file_path}${candidate.missing_file ? " (missing_file)" : ""}`,
+          `- Prompt revision: ${candidate.prompt_revision_id || "(none)"}`,
           `- Source integrity: ${candidate.source_integrity}`,
           `- Prompt missing: ${candidate.prompt_missing === 1 ? "yes" : "no"}`,
           `- Prompt: ${candidate.prompt_text || "(none)"}`,
@@ -175,4 +201,9 @@ function withFileWarningFlag<T extends { id: string }>(warnings: ExportWarning[]
     ...entity,
     missing_file: hasWarning(warnings, entity.id)
   });
+}
+
+function promptPreview(promptText: string): string {
+  const normalized = promptText.replace(/\s+/g, " ").trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }

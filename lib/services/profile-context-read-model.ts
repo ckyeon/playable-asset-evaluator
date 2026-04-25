@@ -7,18 +7,41 @@ import type {
   GenerationContext,
   GenerationContextAsset,
   PromptGuidance,
+  PromptRevision,
   ReferenceAsset,
   StyleProfile
 } from "@/lib/types/domain";
 
+export type PromptRevisionEffectiveness = "improved" | "flat" | "regressed" | "unknown";
+
+export type PromptRevisionEffectivenessReason =
+  | "improved"
+  | "flat"
+  | "regressed"
+  | "root_revision"
+  | "no_saved_evaluation"
+  | "parent_no_saved_evaluation"
+  | "broken_lineage";
+
+export interface PromptRevisionReadModel extends PromptRevision {
+  candidate_ids: string[];
+  candidate_count: number;
+  effectiveness: PromptRevisionEffectiveness;
+  effectiveness_reason: PromptRevisionEffectivenessReason;
+}
+
+type EvaluationReadModel = Evaluation & { criteria: EvaluationCriterion[]; prompt_guidance: PromptGuidance[] };
+
 export interface CandidateReadModel {
   candidate: CandidateImage;
-  evaluations: Array<Evaluation & { criteria: EvaluationCriterion[]; prompt_guidance: PromptGuidance[] }>;
+  promptRevision: PromptRevisionReadModel | null;
+  evaluations: EvaluationReadModel[];
 }
 
 export interface GenerationContextReadModel extends ContextConfidence {
   context: GenerationContext;
   sourceAssets: GenerationContextAsset[];
+  promptRevisions: PromptRevisionReadModel[];
   candidates: CandidateReadModel[];
 }
 
@@ -52,6 +75,15 @@ export function loadProfileContextReadModel(styleProfileId: string): ProfileCont
            ORDER BY created_at DESC`
         )
         .all(...contextIds) as GenerationContextAsset[])
+    : [];
+  const promptRevisions = contextIds.length
+    ? (db
+        .prepare(
+          `SELECT * FROM prompt_revisions
+           WHERE generation_context_id IN (${placeholders(contextIds)})
+           ORDER BY created_at ASC, id ASC`
+        )
+        .all(...contextIds) as PromptRevision[])
     : [];
   const candidates = contextIds.length
     ? (db
@@ -92,21 +124,34 @@ export function loadProfileContextReadModel(styleProfileId: string): ProfileCont
         .all(...evaluationIds) as PromptGuidance[])
     : [];
 
+  const assetsByContext = groupBy(sourceAssets, (asset) => asset.generation_context_id);
+  const revisionsByContext = groupBy(promptRevisions, (revision) => revision.generation_context_id);
+  const candidatesByContext = groupBy(candidates, (candidate) => candidate.generation_context_id);
+  const evaluationsByCandidate = groupBy(evaluations, (evaluation) => evaluation.candidate_image_id);
+  const criteriaByEvaluation = groupBy(criteria, (criterion) => criterion.evaluation_id);
+  const guidanceByEvaluation = groupBy(guidance, (item) => item.evaluation_id || "");
+  const candidateIdsByRevision = groupCandidateIdsByRevision(candidates);
+  const scoreByRevision = bestSavedScoreByRevision(candidates, evaluations);
+  const revisionModelsById = new Map<string, PromptRevisionReadModel>();
+  for (const revision of promptRevisions) {
+    revisionModelsById.set(revision.id, toRevisionReadModel(revision, promptRevisions, candidateIdsByRevision, scoreByRevision));
+  }
+
   return {
     profile,
     referenceAssets,
     contexts: contexts.map((context) => {
-      const contextAssets = sourceAssets.filter((asset) => asset.generation_context_id === context.id);
-      const contextCandidates = candidates.filter((candidate) => candidate.generation_context_id === context.id);
+      const contextAssets = assetsByContext.get(context.id) || [];
+      const contextCandidates = candidatesByContext.get(context.id) || [];
+      const contextRevisions = (revisionsByContext.get(context.id) || []).map((revision) => revisionModelsById.get(revision.id)!);
       const candidateModels = contextCandidates.map((candidate) => ({
         candidate,
-        evaluations: evaluations
-          .filter((evaluation) => evaluation.candidate_image_id === candidate.id)
-          .map((evaluation) => ({
-            ...evaluation,
-            criteria: criteria.filter((criterion) => criterion.evaluation_id === evaluation.id),
-            prompt_guidance: guidance.filter((item) => item.evaluation_id === evaluation.id)
-          }))
+        promptRevision: candidate.prompt_revision_id ? revisionModelsById.get(candidate.prompt_revision_id) || null : null,
+        evaluations: (evaluationsByCandidate.get(candidate.id) || []).map((evaluation) => ({
+          ...evaluation,
+          criteria: criteriaByEvaluation.get(evaluation.id) || [],
+          prompt_guidance: guidanceByEvaluation.get(evaluation.id) || []
+        }))
       }));
       const latestEvaluation = candidateModels.flatMap((candidate) => candidate.evaluations)[0] || null;
       const confidence = computeContextConfidence(context, contextAssets, latestEvaluation);
@@ -114,6 +159,7 @@ export function loadProfileContextReadModel(styleProfileId: string): ProfileCont
       return {
         context,
         sourceAssets: contextAssets,
+        promptRevisions: contextRevisions,
         candidates: candidateModels,
         ...confidence
       };
@@ -123,4 +169,100 @@ export function loadProfileContextReadModel(styleProfileId: string): ProfileCont
 
 function placeholders(values: unknown[]): string {
   return values.map(() => "?").join(",");
+}
+
+function groupBy<T>(items: T[], keyFor: (item: T) => string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFor(item);
+    if (!key) {
+      continue;
+    }
+    grouped.set(key, [...(grouped.get(key) || []), item]);
+  }
+  return grouped;
+}
+
+function groupCandidateIdsByRevision(candidates: CandidateImage[]): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const candidate of candidates) {
+    if (!candidate.prompt_revision_id) {
+      continue;
+    }
+    grouped.set(candidate.prompt_revision_id, [...(grouped.get(candidate.prompt_revision_id) || []), candidate.id]);
+  }
+  return grouped;
+}
+
+function bestSavedScoreByRevision(candidates: CandidateImage[], evaluations: Evaluation[]): Map<string, number> {
+  const revisionIdByCandidateId = new Map(
+    candidates
+      .filter((candidate) => candidate.prompt_revision_id)
+      .map((candidate) => [candidate.id, candidate.prompt_revision_id as string])
+  );
+  const scores = new Map<string, number>();
+
+  for (const evaluation of evaluations) {
+    if (evaluation.evaluation_state !== "saved") {
+      continue;
+    }
+    const revisionId = revisionIdByCandidateId.get(evaluation.candidate_image_id);
+    if (!revisionId) {
+      continue;
+    }
+    scores.set(revisionId, Math.max(scores.get(revisionId) ?? Number.NEGATIVE_INFINITY, evaluation.fit_score));
+  }
+
+  return scores;
+}
+
+function toRevisionReadModel(
+  revision: PromptRevision,
+  allRevisions: PromptRevision[],
+  candidateIdsByRevision: Map<string, string[]>,
+  scoreByRevision: Map<string, number>
+): PromptRevisionReadModel {
+  const effectiveness = computeEffectiveness(revision, allRevisions, scoreByRevision);
+  const candidateIds = candidateIdsByRevision.get(revision.id) || [];
+  return {
+    ...revision,
+    candidate_ids: candidateIds,
+    candidate_count: candidateIds.length,
+    effectiveness: effectiveness.effectiveness,
+    effectiveness_reason: effectiveness.reason
+  };
+}
+
+function computeEffectiveness(
+  revision: PromptRevision,
+  allRevisions: PromptRevision[],
+  scoreByRevision: Map<string, number>
+): { effectiveness: PromptRevisionEffectiveness; reason: PromptRevisionEffectivenessReason } {
+  if (!revision.parent_prompt_revision_id) {
+    return { effectiveness: "unknown", reason: "root_revision" };
+  }
+
+  const parent = allRevisions.find((item) => item.id === revision.parent_prompt_revision_id);
+  if (!parent) {
+    return { effectiveness: "unknown", reason: "broken_lineage" };
+  }
+
+  const score = scoreByRevision.get(revision.id);
+  if (score === undefined) {
+    return { effectiveness: "unknown", reason: "no_saved_evaluation" };
+  }
+
+  const parentScore = scoreByRevision.get(parent.id);
+  if (parentScore === undefined) {
+    return { effectiveness: "unknown", reason: "parent_no_saved_evaluation" };
+  }
+
+  const delta = score - parentScore;
+  if (delta >= 5) {
+    return { effectiveness: "improved", reason: "improved" };
+  }
+  if (delta <= -5) {
+    return { effectiveness: "regressed", reason: "regressed" };
+  }
+  return { effectiveness: "flat", reason: "flat" };
 }

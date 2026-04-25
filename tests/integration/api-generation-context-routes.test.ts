@@ -3,6 +3,8 @@ import { GET as getProfileDetail } from "@/app/api/style-profiles/[id]/route";
 import { GET as getProfileHistory } from "@/app/api/style-profiles/[id]/history/route";
 import { POST as postGenerationContextCandidate } from "@/app/api/generation-contexts/[id]/candidates/route";
 import { getDb } from "@/lib/db/client";
+import { GenerationContextService } from "@/lib/services/generation-context-service";
+import { PromptRevisionService } from "@/lib/services/prompt-revision-service";
 import { createImageFile, useTempDataDir } from "../helpers";
 
 function params(id: string): { params: Promise<{ id: string }> } {
@@ -20,6 +22,7 @@ describe("generation context API routes", () => {
 
     expect(response.status).toBe(200);
     expect(data.generationContexts).toEqual(expect.arrayContaining([expect.objectContaining({ style_profile_id: profile.id })]));
+    expect(data.generationContexts).toEqual(expect.arrayContaining([expect.objectContaining({ promptRevisions: expect.any(Array) })]));
     expect(data).not.toHaveProperty("sessions");
   });
 
@@ -40,13 +43,48 @@ describe("generation context API routes", () => {
       params(generationContext.id)
     );
     const uploadData = (await uploadResponse.json()) as {
-      candidate: { generation_context_id: string; imageUrl: string | null; originalUrl: string | null };
+      candidate: {
+        generation_context_id: string;
+        prompt_revision_id: string | null;
+        imageUrl: string | null;
+        originalUrl: string | null;
+      };
     };
 
     expect(uploadResponse.status).toBe(201);
     expect(uploadData.candidate.generation_context_id).toBe(generationContext.id);
+    expect(uploadData.candidate.prompt_revision_id).toBeTruthy();
     expect(uploadData.candidate.imageUrl).toMatch(/^\/api\/assets\//);
     expect(uploadData.candidate.originalUrl).toMatch(/^\/api\/assets\//);
+    expect(
+      db.prepare("SELECT prompt_text FROM prompt_revisions WHERE id = ?").get(uploadData.candidate.prompt_revision_id)
+    ).toEqual({
+      prompt_text: "Generate a polished character reaction pose."
+    });
+
+    const detailResponse = await getProfileDetail(new Request(`http://test.local/api/style-profiles/${profile.id}`), params(profile.id));
+    const detailData = (await detailResponse.json()) as {
+      generationContexts: Array<{ id: string; promptRevisions: Array<{ id: string; prompt_text: string }> }>;
+      candidates: Array<{ id: string; prompt_revision_id: string | null; promptRevision: { id: string } | null }>;
+    };
+
+    expect(detailResponse.status).toBe(200);
+    expect(detailData.generationContexts.find((context) => context.id === generationContext.id)?.promptRevisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: uploadData.candidate.prompt_revision_id,
+          prompt_text: "Generate a polished character reaction pose."
+        })
+      ])
+    );
+    expect(detailData.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          prompt_revision_id: uploadData.candidate.prompt_revision_id,
+          promptRevision: expect.objectContaining({ id: uploadData.candidate.prompt_revision_id })
+        })
+      ])
+    );
 
     const historyResponse = await getProfileHistory(
       new Request(`http://test.local/api/style-profiles/${profile.id}/history`),
@@ -60,5 +98,164 @@ describe("generation context API routes", () => {
     expect(historyData.history).toHaveLength(1);
     expect(historyData.history[0].generationContext.id).toBe(generationContext.id);
     expect(historyData.history[0]).not.toHaveProperty("session");
+  });
+
+  it("attaches uploaded candidates to an existing prompt revision", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const revision = new PromptRevisionService().createRevision({
+      generationContextId: generationContext.id,
+      promptText: "existing revision prompt"
+    });
+    const formData = new FormData();
+    formData.set("file", await createImageFile("candidate.png"));
+    formData.set("promptRevisionId", revision.id);
+
+    const uploadResponse = await postGenerationContextCandidate(
+      new Request(`http://test.local/api/generation-contexts/${generationContext.id}/candidates`, {
+        method: "POST",
+        body: formData
+      }),
+      params(generationContext.id)
+    );
+    const uploadData = (await uploadResponse.json()) as {
+      candidate: {
+        id: string;
+        prompt_revision_id: string | null;
+        prompt_text: string | null;
+        prompt_missing: 0 | 1;
+      };
+    };
+
+    expect(uploadResponse.status).toBe(201);
+    expect(uploadData.candidate.prompt_revision_id).toBe(revision.id);
+    expect(uploadData.candidate.prompt_text).toBe("existing revision prompt");
+    expect(uploadData.candidate.prompt_missing).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM prompt_revisions").get()).toEqual({ count: 1 });
+  });
+
+  it("creates child prompt revisions from candidate uploads", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const parent = new PromptRevisionService().createRevision({
+      generationContextId: generationContext.id,
+      revisionLabel: "root",
+      promptText: "root revision prompt"
+    });
+    const formData = new FormData();
+    formData.set("file", await createImageFile("candidate.png"));
+    formData.set("parentPromptRevisionId", parent.id);
+    formData.set("revisionLabel", "child");
+    formData.set("revisionNote", "More readable pose.");
+    formData.set("negativePrompt", "blur, extra fingers");
+    formData.set("parametersJson", '{ "seed": 42, "steps": 24 }');
+    formData.set("promptText", "child revision prompt");
+
+    const uploadResponse = await postGenerationContextCandidate(
+      new Request(`http://test.local/api/generation-contexts/${generationContext.id}/candidates`, {
+        method: "POST",
+        body: formData
+      }),
+      params(generationContext.id)
+    );
+    const uploadData = (await uploadResponse.json()) as {
+      candidate: {
+        id: string;
+        prompt_revision_id: string | null;
+        prompt_text: string | null;
+      };
+    };
+
+    expect(uploadResponse.status).toBe(201);
+    expect(uploadData.candidate.prompt_text).toBe("child revision prompt");
+    expect(uploadData.candidate.prompt_revision_id).toBeTruthy();
+    expect(
+      db
+        .prepare(
+          `SELECT parent_prompt_revision_id, revision_label, revision_note, negative_prompt, parameters_json
+           FROM prompt_revisions
+           WHERE id = ?`
+        )
+        .get(uploadData.candidate.prompt_revision_id)
+    ).toEqual({
+      parent_prompt_revision_id: parent.id,
+      revision_label: "child",
+      revision_note: "More readable pose.",
+      negative_prompt: "blur, extra fingers",
+      parameters_json: '{"seed":42,"steps":24}'
+    });
+  });
+
+  it("rejects stale or cross-context prompt revisions before storing candidates", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const profile = db.prepare("SELECT id FROM style_profiles LIMIT 1").get() as { id: string };
+    const firstContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const secondContext = new GenerationContextService().createContext({
+      styleProfileId: profile.id,
+      name: "Second context"
+    });
+    const revision = new PromptRevisionService().createRevision({
+      generationContextId: firstContext.id,
+      promptText: "first context revision"
+    });
+    const formData = new FormData();
+    formData.set("file", await createImageFile("candidate.png"));
+    formData.set("promptRevisionId", revision.id);
+
+    const uploadResponse = await postGenerationContextCandidate(
+      new Request(`http://test.local/api/generation-contexts/${secondContext.id}/candidates`, {
+        method: "POST",
+        body: formData
+      }),
+      params(secondContext.id)
+    );
+    const errorData = (await uploadResponse.json()) as { error: string };
+
+    expect(uploadResponse.status).toBe(400);
+    expect(errorData.error).toMatch(/Prompt revision does not belong/);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM candidate_images").get()).toEqual({ count: 0 });
+  });
+
+  it("stores prompt-missing candidate uploads without prompt revisions", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const profile = db.prepare("SELECT id FROM style_profiles LIMIT 1").get() as { id: string };
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const formData = new FormData();
+    formData.set("file", await createImageFile("candidate.png"));
+    formData.set("promptMissing", "true");
+    formData.set("recoveryNote", "Original prompt was not available.");
+
+    const uploadResponse = await postGenerationContextCandidate(
+      new Request(`http://test.local/api/generation-contexts/${generationContext.id}/candidates`, {
+        method: "POST",
+        body: formData
+      }),
+      params(generationContext.id)
+    );
+    const uploadData = (await uploadResponse.json()) as {
+      candidate: { prompt_revision_id: string | null; prompt_missing: 0 | 1; source_integrity: string };
+    };
+
+    expect(uploadResponse.status).toBe(201);
+    expect(uploadData.candidate).toMatchObject({
+      prompt_revision_id: null,
+      prompt_missing: 1,
+      source_integrity: "incomplete"
+    });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM prompt_revisions").get()).toEqual({ count: 0 });
+
+    const detailResponse = await getProfileDetail(new Request(`http://test.local/api/style-profiles/${profile.id}`), params(profile.id));
+    const detailData = (await detailResponse.json()) as {
+      generationContexts: Array<{ id: string; promptRevisions: Array<{ id: string }> }>;
+      candidates: Array<{ id: string; promptRevision: { id: string } | null }>;
+    };
+
+    expect(detailResponse.status).toBe(200);
+    expect(detailData.generationContexts.find((context) => context.id === generationContext.id)?.promptRevisions).toEqual([]);
+    expect(detailData.candidates).toEqual(expect.arrayContaining([expect.objectContaining({ promptRevision: null })]));
   });
 });

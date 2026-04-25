@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Clipboard,
   Copy,
@@ -6,11 +8,13 @@ import {
   ImagePlus,
   Loader2,
   Save,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Upload
 } from "lucide-react";
-import type { RefObject } from "react";
+import { useMemo, useRef, useState } from "react";
+import type { KeyboardEvent, RefObject } from "react";
 import type {
   Candidate,
   Criterion,
@@ -20,6 +24,8 @@ import type {
   GenerationContext,
   HistoryItem,
   ProfileDetail,
+  PromptRevision,
+  RevisionUploadMode,
   StyleProfile,
   WorkspaceStatus
 } from "./workspace-types";
@@ -248,6 +254,332 @@ export function ActiveContextHeader({ activeContext, profile, selectedProfileId 
   );
 }
 
+interface PromptRevisionStripProps {
+  activeContext: GenerationContext | null;
+  selectedPromptRevisionId: string | null;
+  onSelectRevision: (revisionId: string) => void;
+}
+
+interface RevisionTreeRow {
+  revision: PromptRevision;
+  depth: number;
+}
+
+interface RevisionTree {
+  revisionById: Map<string, PromptRevision>;
+  childrenByParent: Map<string, PromptRevision[]>;
+  orderedRows: RevisionTreeRow[];
+  depthById: Map<string, number>;
+}
+
+const rootParentKey = "__root__";
+
+export function PromptRevisionStrip({ activeContext, selectedPromptRevisionId, onSelectRevision }: PromptRevisionStripProps) {
+  const [focusedRevisionId, setFocusedRevisionId] = useState<string | null>(null);
+  const [openParametersId, setOpenParametersId] = useState<string | null>(null);
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const revisions = useMemo(() => sortPromptRevisions(activeContext?.promptRevisions || []), [activeContext?.promptRevisions]);
+  const tree = useMemo(() => buildRevisionTree(revisions), [revisions]);
+  const selectedRevisionId =
+    selectedPromptRevisionId && tree.revisionById.has(selectedPromptRevisionId) ? selectedPromptRevisionId : null;
+  const selectedRevision = selectedRevisionId ? tree.revisionById.get(selectedRevisionId) || null : null;
+  const compactRevision = selectedRevision || revisions[0] || null;
+  const visibleRows = useMemo(() => buildVisibleRevisionRows(tree, selectedRevisionId), [tree, selectedRevisionId]);
+  const deeperCount = selectedRevisionId ? countDeeperDescendants(selectedRevisionId, tree.childrenByParent, 2) : 0;
+
+  function focusRow(revisionId: string, mode: "wide" | "compact") {
+    setFocusedRevisionId(revisionId);
+    rowRefs.current.get(`${mode}:${revisionId}`)?.focus();
+  }
+
+  function handleRowKeyDown(
+    event: KeyboardEvent<HTMLDivElement>,
+    row: RevisionTreeRow,
+    rows: RevisionTreeRow[],
+    mode: "wide" | "compact"
+  ) {
+    const currentIndex = rows.findIndex((item) => item.revision.id === row.revision.id);
+    if (currentIndex < 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      const nextIndex = Math.max(0, Math.min(rows.length - 1, currentIndex + direction));
+      focusRow(rows[nextIndex].revision.id, mode);
+      return;
+    }
+
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const nextIndex = event.key === "Home" ? 0 : rows.length - 1;
+      focusRow(rows[nextIndex].revision.id, mode);
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelectRevision(row.revision.id);
+    }
+  }
+
+  function renderRevisionRow(row: RevisionTreeRow, rows: RevisionTreeRow[], mode: "wide" | "compact") {
+    const revision = row.revision;
+    const isSelected = revision.id === selectedRevisionId;
+    const isFocused = focusedRevisionId ? revision.id === focusedRevisionId : isSelected || rows[0]?.revision.id === revision.id;
+    const parameterId = `prompt-revision-parameters-${revision.id}`;
+    const hasParameters = Boolean(revision.parameters_json);
+    const parametersOpen = openParametersId === revision.id;
+
+    return (
+      <div className="prompt-revision-row-shell" key={`${mode}-${revision.id}`}>
+        <div
+          className={`prompt-revision-row ${isSelected ? "is-selected" : ""}`}
+          data-testid="prompt-revision-row"
+          ref={(node) => {
+            const key = `${mode}:${revision.id}`;
+            if (node) {
+              rowRefs.current.set(key, node);
+            } else {
+              rowRefs.current.delete(key);
+            }
+          }}
+          role="option"
+          aria-selected={isSelected}
+          aria-current={isSelected ? "true" : undefined}
+          tabIndex={isFocused ? 0 : -1}
+          onClick={() => onSelectRevision(revision.id)}
+          onFocus={() => setFocusedRevisionId(revision.id)}
+          onKeyDown={(event) => handleRowKeyDown(event, row, rows, mode)}
+        >
+          <span className="revision-branch" style={{ paddingLeft: `${Math.min(row.depth, 2) * 12}px` }} aria-hidden>
+            {row.depth > 0 ? "|" : ""}
+          </span>
+          <span className="revision-title">
+            <strong>{revisionTitle(revision)}</strong>
+            <span>{parentSummary(revision, tree.revisionById)}</span>
+          </span>
+          <span className={effectivenessClassName(revision)} title={revision.effectiveness_reason.replaceAll("_", " ")}>
+            {revision.effectiveness}
+          </span>
+          <span className="revision-count">{candidateCountLabel(revision.candidate_count)}</span>
+          <span className="revision-preview">{promptPreview(revision.prompt_text)}</span>
+          {hasParameters ? (
+            <button
+              className="revision-parameters-toggle"
+              type="button"
+              aria-expanded={parametersOpen}
+              aria-controls={parameterId}
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenParametersId(parametersOpen ? null : revision.id);
+              }}
+            >
+              <SlidersHorizontal size={13} aria-hidden /> Parameters
+            </button>
+          ) : (
+            <span className="revision-parameters-empty" aria-hidden />
+          )}
+        </div>
+        {hasParameters && parametersOpen ? (
+          <pre className="revision-parameters" id={parameterId}>
+            {formatParameters(revision.parameters_json)}
+          </pre>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <section className="panel prompt-revision-strip" aria-labelledby="prompt-revisions-heading">
+      <div className="panel-header">
+        <div>
+          <h2 id="prompt-revisions-heading">Prompt revisions</h2>
+          <div className="microcopy">
+            {activeContext ? `${revisions.length} revisions in ${activeContext.name}` : "Select a context to see prompt lineage."}
+          </div>
+        </div>
+      </div>
+
+      {!activeContext ? <div className="status compact-status prompt-revision-empty">Select a generation context first.</div> : null}
+      {activeContext && revisions.length === 0 ? (
+        <div className="status compact-status prompt-revision-empty">No prompt revisions yet.</div>
+      ) : null}
+      {activeContext && compactRevision ? (
+        <>
+          <div className="prompt-revision-compact" role="listbox" aria-label="Prompt revisions">
+            {renderRevisionRow(
+              { revision: compactRevision, depth: tree.depthById.get(compactRevision.id) || 0 },
+              [{ revision: compactRevision, depth: tree.depthById.get(compactRevision.id) || 0 }],
+              "compact"
+            )}
+            <div className="microcopy prompt-revision-related">
+              {Math.max(0, revisions.length - 1)} related revisions hidden at this width.
+            </div>
+          </div>
+          <div className="prompt-revision-list prompt-revision-list--wide" role="listbox" aria-label="Prompt revisions">
+            {visibleRows.map((row) => renderRevisionRow(row, visibleRows, "wide"))}
+            {deeperCount > 0 ? <div className="prompt-revision-more">+{deeperCount} deeper revisions</div> : null}
+          </div>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function sortPromptRevisions(revisions: PromptRevision[]): PromptRevision[] {
+  return [...revisions].sort((left, right) => {
+    const createdDiff = left.created_at.localeCompare(right.created_at);
+    return createdDiff || left.id.localeCompare(right.id);
+  });
+}
+
+function buildRevisionTree(revisions: PromptRevision[]): RevisionTree {
+  const revisionById = new Map(revisions.map((revision) => [revision.id, revision]));
+  const childrenByParent = new Map<string, PromptRevision[]>();
+  const orderedRows: RevisionTreeRow[] = [];
+  const depthById = new Map<string, number>();
+
+  for (const revision of revisions) {
+    const parentKey =
+      revision.parent_prompt_revision_id && revisionById.has(revision.parent_prompt_revision_id)
+        ? revision.parent_prompt_revision_id
+        : rootParentKey;
+    const siblings = childrenByParent.get(parentKey) || [];
+    siblings.push(revision);
+    childrenByParent.set(parentKey, siblings);
+  }
+
+  const visit = (revision: PromptRevision, depth: number, seen: Set<string>) => {
+    if (seen.has(revision.id)) {
+      return;
+    }
+    const nextSeen = new Set(seen);
+    nextSeen.add(revision.id);
+    orderedRows.push({ revision, depth });
+    depthById.set(revision.id, depth);
+    for (const child of childrenByParent.get(revision.id) || []) {
+      visit(child, depth + 1, nextSeen);
+    }
+  };
+
+  for (const root of childrenByParent.get(rootParentKey) || []) {
+    visit(root, 0, new Set());
+  }
+
+  return { revisionById, childrenByParent, orderedRows, depthById };
+}
+
+function buildVisibleRevisionRows(tree: RevisionTree, selectedRevisionId: string | null): RevisionTreeRow[] {
+  if (!selectedRevisionId) {
+    return tree.orderedRows.slice(0, 8);
+  }
+  const selected = tree.revisionById.get(selectedRevisionId);
+  if (!selected) {
+    return tree.orderedRows.slice(0, 8);
+  }
+
+  const included = new Set<string>([selected.id]);
+  for (const ancestorId of ancestorIds(selected, tree.revisionById)) {
+    included.add(ancestorId);
+  }
+
+  const parentKey =
+    selected.parent_prompt_revision_id && tree.revisionById.has(selected.parent_prompt_revision_id)
+      ? selected.parent_prompt_revision_id
+      : rootParentKey;
+  for (const sibling of tree.childrenByParent.get(parentKey) || []) {
+    included.add(sibling.id);
+  }
+
+  addDescendantsWithinDepth(selected.id, tree.childrenByParent, 2, included);
+  return tree.orderedRows.filter((row) => included.has(row.revision.id));
+}
+
+function ancestorIds(revision: PromptRevision, revisionById: Map<string, PromptRevision>): string[] {
+  const ancestors: string[] = [];
+  const seen = new Set<string>([revision.id]);
+  let parentId = revision.parent_prompt_revision_id;
+  while (parentId && revisionById.has(parentId) && !seen.has(parentId)) {
+    ancestors.push(parentId);
+    seen.add(parentId);
+    parentId = revisionById.get(parentId)?.parent_prompt_revision_id || null;
+  }
+  return ancestors;
+}
+
+function addDescendantsWithinDepth(
+  revisionId: string,
+  childrenByParent: Map<string, PromptRevision[]>,
+  maxDepth: number,
+  included: Set<string>,
+  currentDepth = 1
+) {
+  if (currentDepth > maxDepth) {
+    return;
+  }
+  for (const child of childrenByParent.get(revisionId) || []) {
+    included.add(child.id);
+    addDescendantsWithinDepth(child.id, childrenByParent, maxDepth, included, currentDepth + 1);
+  }
+}
+
+function countDeeperDescendants(revisionId: string, childrenByParent: Map<string, PromptRevision[]>, maxVisibleDepth: number): number {
+  let count = 0;
+  const visit = (currentId: string, depth: number) => {
+    for (const child of childrenByParent.get(currentId) || []) {
+      if (depth > maxVisibleDepth) {
+        count += 1;
+      }
+      visit(child.id, depth + 1);
+    }
+  };
+  visit(revisionId, 1);
+  return count;
+}
+
+function revisionTitle(revision: PromptRevision): string {
+  return revision.revision_label?.trim() || `rev ${revision.id.slice(0, 8)}`;
+}
+
+function revisionOptionLabel(revision: PromptRevision): string {
+  return `${revisionTitle(revision)} · ${revision.candidate_count} candidate${revision.candidate_count === 1 ? "" : "s"}`;
+}
+
+function parentSummary(revision: PromptRevision, revisionById: Map<string, PromptRevision>): string {
+  if (!revision.parent_prompt_revision_id) {
+    return "root";
+  }
+  const parent = revisionById.get(revision.parent_prompt_revision_id);
+  return parent ? `child of ${revisionTitle(parent)}` : "missing parent";
+}
+
+function effectivenessClassName(revision: PromptRevision): string {
+  const unknownWarning = revision.effectiveness === "unknown" && revision.effectiveness_reason === "broken_lineage";
+  return `revision-effectiveness revision-effectiveness--${unknownWarning ? "unknown-warning" : revision.effectiveness}`;
+}
+
+function candidateCountLabel(count: number): string {
+  return `${count} candidate${count === 1 ? "" : "s"}`;
+}
+
+function promptPreview(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+}
+
+function formatParameters(parametersJson: string | null): string {
+  if (!parametersJson) {
+    return "";
+  }
+  try {
+    return JSON.stringify(JSON.parse(parametersJson), null, 2);
+  } catch {
+    return parametersJson;
+  }
+}
+
 interface ContextSourceAssetsProps {
   activeContext: GenerationContext | null;
   sourceInputRef: RefObject<HTMLInputElement | null>;
@@ -443,11 +775,27 @@ interface CandidatePanelProps {
   promptMissing: boolean;
   recoveryNote: string;
   generationTool: string;
+  promptRevisions: PromptRevision[];
+  selectedPromptRevisionId: string | null;
+  revisionUploadMode: RevisionUploadMode;
+  parentPromptRevisionId: string | null;
+  attachPromptRevisionId: string | null;
+  revisionLabel: string;
+  revisionNote: string;
+  negativePrompt: string;
+  parametersJson: string;
   busy: string | null;
   onPromptTextChange: (value: string) => void;
   onPromptMissingChange: (value: boolean) => void;
   onRecoveryNoteChange: (value: string) => void;
   onGenerationToolChange: (value: string) => void;
+  onRevisionUploadModeChange: (value: RevisionUploadMode) => void;
+  onParentPromptRevisionIdChange: (value: string | null) => void;
+  onAttachPromptRevisionIdChange: (value: string | null) => void;
+  onRevisionLabelChange: (value: string) => void;
+  onRevisionNoteChange: (value: string) => void;
+  onNegativePromptChange: (value: string) => void;
+  onParametersJsonChange: (value: string) => void;
   onUploadCandidate: (file: File) => void;
   onDeleteCurrentCandidate: () => void;
 }
@@ -459,14 +807,45 @@ export function CandidatePanel({
   promptMissing,
   recoveryNote,
   generationTool,
+  promptRevisions,
+  selectedPromptRevisionId,
+  revisionUploadMode,
+  parentPromptRevisionId,
+  attachPromptRevisionId,
+  revisionLabel,
+  revisionNote,
+  negativePrompt,
+  parametersJson,
   busy,
   onPromptTextChange,
   onPromptMissingChange,
   onRecoveryNoteChange,
   onGenerationToolChange,
+  onRevisionUploadModeChange,
+  onParentPromptRevisionIdChange,
+  onAttachPromptRevisionIdChange,
+  onRevisionLabelChange,
+  onRevisionNoteChange,
+  onNegativePromptChange,
+  onParametersJsonChange,
   onUploadCandidate,
   onDeleteCurrentCandidate
 }: CandidatePanelProps) {
+  const orderedRevisions = sortPromptRevisions(promptRevisions);
+  const hasRevisions = orderedRevisions.length > 0;
+  const targetAttachRevision =
+    orderedRevisions.find((revision) => revision.id === attachPromptRevisionId) ||
+    orderedRevisions.find((revision) => revision.id === selectedPromptRevisionId) ||
+    orderedRevisions[0] ||
+    null;
+  const targetParentRevision =
+    orderedRevisions.find((revision) => revision.id === parentPromptRevisionId) ||
+    orderedRevisions.find((revision) => revision.id === selectedPromptRevisionId) ||
+    orderedRevisions[0] ||
+    null;
+  const isAttachMode = revisionUploadMode === "attach_existing" && !promptMissing;
+  const displayedPromptText = isAttachMode ? targetAttachRevision?.prompt_text || "" : promptText;
+
   return (
     <section className="panel" aria-labelledby="candidate-image-heading">
       <div className="panel-header">
@@ -527,9 +906,13 @@ export function CandidatePanel({
         </label>
         <textarea
           id="candidate-prompt"
-          className="textarea"
-          value={promptText}
+          className={`textarea ${isAttachMode ? "textarea-readonly" : ""}`}
+          value={displayedPromptText}
+          readOnly={isAttachMode}
           onChange={(event) => {
+            if (isAttachMode) {
+              return;
+            }
             onPromptTextChange(event.target.value);
             if (event.target.value.trim()) {
               onPromptMissingChange(false);
@@ -550,6 +933,109 @@ export function CandidatePanel({
             Prompt missing
           </label>
         </div>
+        <fieldset className={`lineage-controls ${promptMissing ? "is-disabled" : ""}`} disabled={promptMissing}>
+          <legend className="field-label">Prompt lineage</legend>
+          <div className="segmented-control" aria-label="Prompt lineage mode">
+            <button
+              className={`segment-button ${revisionUploadMode === "new_root" ? "is-active" : ""}`}
+              type="button"
+              onClick={() => onRevisionUploadModeChange("new_root")}
+            >
+              New root
+            </button>
+            <button
+              className={`segment-button ${revisionUploadMode === "new_child" ? "is-active" : ""}`}
+              type="button"
+              disabled={!hasRevisions}
+              onClick={() => onRevisionUploadModeChange("new_child")}
+            >
+              New child
+            </button>
+            <button
+              className={`segment-button ${revisionUploadMode === "attach_existing" ? "is-active" : ""}`}
+              type="button"
+              disabled={!hasRevisions}
+              onClick={() => onRevisionUploadModeChange("attach_existing")}
+            >
+              Attach existing
+            </button>
+          </div>
+
+          {revisionUploadMode === "new_child" ? (
+            <label className="lineage-select-row">
+              <span className="field-label">Parent revision</span>
+              <select
+                className="select"
+                value={targetParentRevision?.id || ""}
+                disabled={!hasRevisions}
+                onChange={(event) => onParentPromptRevisionIdChange(event.target.value || null)}
+              >
+                {orderedRevisions.map((revision) => (
+                  <option value={revision.id} key={revision.id}>
+                    {revisionOptionLabel(revision)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {revisionUploadMode === "attach_existing" ? (
+            <>
+              <label className="lineage-select-row">
+                <span className="field-label">Attach revision</span>
+                <select
+                  className="select"
+                  value={targetAttachRevision?.id || ""}
+                  disabled={!hasRevisions}
+                  onChange={(event) => onAttachPromptRevisionIdChange(event.target.value || null)}
+                >
+                  {orderedRevisions.map((revision) => (
+                    <option value={revision.id} key={revision.id}>
+                      {revisionOptionLabel(revision)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="lineage-preview">{targetAttachRevision ? promptPreview(targetAttachRevision.prompt_text) : "No revision"}</div>
+            </>
+          ) : null}
+
+          {revisionUploadMode !== "attach_existing" ? (
+            <details className="lineage-advanced">
+              <summary>Revision metadata</summary>
+              <div className="form-row">
+                <input
+                  className="input"
+                  value={revisionLabel}
+                  onChange={(event) => onRevisionLabelChange(event.target.value)}
+                  placeholder="Revision label"
+                  aria-label="Revision label"
+                />
+                <input
+                  className="input"
+                  value={negativePrompt}
+                  onChange={(event) => onNegativePromptChange(event.target.value)}
+                  placeholder="Negative prompt"
+                  aria-label="Negative prompt"
+                />
+              </div>
+              <textarea
+                className="textarea compact-textarea"
+                value={revisionNote}
+                onChange={(event) => onRevisionNoteChange(event.target.value)}
+                placeholder="Revision note"
+                aria-label="Revision note"
+              />
+              <textarea
+                className="textarea compact-textarea mono-textarea"
+                value={parametersJson}
+                onChange={(event) => onParametersJsonChange(event.target.value)}
+                placeholder='{"seed": 12, "steps": 20}'
+                aria-label="Parameters JSON"
+              />
+            </details>
+          ) : null}
+        </fieldset>
         {promptMissing ? (
           <>
             <label className="field-label" htmlFor="recovery-note">

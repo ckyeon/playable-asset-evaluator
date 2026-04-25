@@ -8,11 +8,13 @@ test("workspace renders the seeded style profile", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Generation contexts" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Matgo -> Slot playable/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Matgo -> Slot playable/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Prompt revisions" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Reference assets" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Candidate image" })).toBeVisible();
 });
 
 test("workspace creates a context, uploads sources and candidate, evaluates, saves, and groups history", async ({ page }) => {
+  test.setTimeout(60_000);
   const sourceAsset = path.join(
     process.cwd(),
     "tests/evals/ai-character-chat/assets/references/ref-01-couch-hand-cover.png"
@@ -72,6 +74,14 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
   await expect(page.getByText("Candidate image saved.")).toBeVisible();
   await expect(page.getByAltText("Current candidate")).toBeVisible();
+  const revisionRow = page.getByRole("option", {
+    name: /unknown.*1 candidate.*Nervous emotion pose, same character, transparent-friendly composition/i
+  });
+  await expect(revisionRow).toBeVisible();
+  await expect(revisionRow).toHaveAttribute("aria-current", "true");
+  await revisionRow.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByAltText("Current candidate")).toBeVisible();
 
   await page.getByRole("button", { name: "Evaluate candidate" }).click();
   await expect(page.getByText("Draft evaluation saved.")).toBeVisible();
@@ -85,4 +95,67 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await expect(page.getByText("Judgment saved to creative memory.")).toBeVisible();
   await expect(page.getByText("1 saved judgments")).toBeVisible();
   await expect(page.getByRole("button", { name: new RegExp(`${contextName}.*needs_edit`, "i") })).toBeVisible();
+
+  await revisionRow.click();
+  await page.getByRole("button", { name: "New child" }).click();
+  await page.getByLabel("Candidate prompt").fill("Nervous pose child revision with cleaner silhouette.");
+  await page.getByText("Revision metadata").click();
+  await page.getByLabel("Revision label").fill("child e2e");
+  const childUploadResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/generation-contexts/") &&
+      response.url().includes("/candidates") &&
+      response.request().method() === "POST"
+  );
+  await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
+  await childUploadResponse;
+  const childRevisionRow = page.getByRole("option", {
+    name: /child e2e.*unknown.*1 candidate.*Nervous pose child revision with cleaner silhouette/i
+  });
+  await expect(childRevisionRow).toBeVisible();
+
+  await childRevisionRow.click();
+  await page.getByRole("button", { name: "Attach existing" }).click();
+  await expect(page.getByLabel("Candidate prompt")).toHaveValue(/cleaner silhouette/);
+  const rowCountBeforeAttach = await page.getByTestId("prompt-revision-row").count();
+  const attachUploadResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/generation-contexts/") &&
+      response.url().includes("/candidates") &&
+      response.request().method() === "POST"
+  );
+  await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
+  await attachUploadResponse;
+  await expect(
+    page.getByRole("option", {
+      name: /child e2e.*unknown.*2 candidates.*Nervous pose child revision with cleaner silhouette/i
+    })
+  ).toBeVisible();
+  await expect(page.getByTestId("prompt-revision-row")).toHaveCount(rowCountBeforeAttach);
+
+  const rowCountBeforeMissing = await page.getByTestId("prompt-revision-row").count();
+  await page.getByLabel("Prompt missing").check();
+  await page.getByLabel("Recovery note").fill("Prompt was lost after export.");
+  const missingUploadResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/generation-contexts/") &&
+      response.url().includes("/candidates") &&
+      response.request().method() === "POST"
+  );
+  await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
+  await missingUploadResponse;
+  await expect(page.getByTestId("prompt-revision-row")).toHaveCount(rowCountBeforeMissing);
+  await expect(page.locator('[role="option"][aria-current="true"]')).toHaveCount(0);
+
+  await page.getByLabel("Prompt missing").uncheck();
+  await expect(page.getByRole("button", { name: "New root" })).toBeEnabled();
+  await page.getByLabel("Candidate prompt").fill("Invalid parameters prompt.");
+  if (!(await page.getByLabel("Parameters JSON").isVisible())) {
+    await page.getByText("Revision metadata").click();
+  }
+  await page.getByLabel("Parameters JSON").fill("[]");
+  const rowCountBeforeInvalidParameters = await page.getByTestId("prompt-revision-row").count();
+  await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
+  await expect(page.getByText("Parameters JSON must be a valid JSON object.")).toBeVisible();
+  await expect(page.getByTestId("prompt-revision-row")).toHaveCount(rowCountBeforeInvalidParameters);
 });

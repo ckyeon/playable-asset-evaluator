@@ -12,6 +12,7 @@ import {
   type EvalManifest,
   type EvalManifestCandidate,
   type EvalManifestContext,
+  type EvalManifestPromptRevision,
   type EvalManifestSourceAsset
 } from "./manifest-schema";
 
@@ -29,6 +30,7 @@ export interface EvalImportCounts {
   reference_assets: number;
   generation_contexts: number;
   generation_context_assets: number;
+  prompt_revisions: number;
   candidate_images: number;
   evaluations: number;
 }
@@ -84,11 +86,27 @@ interface PlannedSourceAsset {
   staged?: StoredImageFile;
 }
 
+interface PlannedPromptRevision {
+  id: string;
+  manifestId: string;
+  contextId: string;
+  parentManifestId: string | null;
+  parentPromptRevisionId: string | null;
+  sourceGuidanceId: string | null;
+  revisionLabel: string | null;
+  revisionNote: string | null;
+  promptText: string;
+  negativePrompt: string | null;
+  parametersJson: string | null;
+  expectedEffectiveness: "improved" | "flat" | "regressed" | "unknown" | null;
+}
+
 interface PlannedCandidate {
   id: string;
   evaluationId: string;
   manifestId: string;
   contextId: string;
+  promptRevisionId: string | null;
   expectedDecision: DecisionLabel;
   humanReason: string;
   promptText: string | null;
@@ -107,6 +125,7 @@ interface ImportPlan {
   profile: PlannedProfile;
   contexts: PlannedContext[];
   sourceAssets: PlannedSourceAsset[];
+  promptRevisions: PlannedPromptRevision[];
   candidates: PlannedCandidate[];
   warnings: EvalImportWarning[];
 }
@@ -201,6 +220,19 @@ export class EvalManifestImporter {
       sourcePrompt: sourcePromptText(context.source_prompt)?.trim() || null
     }));
 
+    const promptRevisionPlansByContext = new Map<string, PlannedPromptRevision[]>();
+    for (const context of manifest.contexts) {
+      const plannedContext = contexts.find((item) => item.manifestId === context.id);
+      if (!plannedContext) {
+        throw new Error(`Context plan not found for ${context.id}`);
+      }
+      promptRevisionPlansByContext.set(
+        plannedContext.id,
+        this.planExplicitPromptRevisions(context, plannedContext)
+      );
+    }
+    const inferredRevisionByPrompt = new Map<string, PlannedPromptRevision>();
+
     const sourceAssets = manifest.contexts.flatMap((context) => {
       const plannedContext = contexts.find((item) => item.manifestId === context.id);
       if (!plannedContext) {
@@ -216,6 +248,8 @@ export class EvalManifestImporter {
       if (!plannedContext) {
         throw new Error(`Context plan not found for ${context.id}`);
       }
+      const contextPromptRevisions = promptRevisionPlansByContext.get(plannedContext.id) || [];
+      const inferPromptRevisions = contextPromptRevisions.length === 0;
       return context.candidates.map((candidate) => {
         const promptMissing = candidate.prompt_missing;
         const recoveryNote = candidate.recovery_note?.trim() || null;
@@ -234,9 +268,18 @@ export class EvalManifestImporter {
           }
         }
 
-        return this.planCandidate(datasetRoot, context, plannedContext, candidate, allowMissingFiles);
+        return this.planCandidate(
+          datasetRoot,
+          plannedContext,
+          candidate,
+          contextPromptRevisions,
+          inferredRevisionByPrompt,
+          inferPromptRevisions,
+          allowMissingFiles
+        );
       });
     });
+    const promptRevisions = [...promptRevisionPlansByContext.values()].flat();
 
     return {
       datasetRoot,
@@ -244,9 +287,44 @@ export class EvalManifestImporter {
       profile,
       contexts,
       sourceAssets,
+      promptRevisions,
       candidates,
       warnings
     };
+  }
+
+  private planExplicitPromptRevisions(
+    context: EvalManifestContext,
+    plannedContext: PlannedContext
+  ): PlannedPromptRevision[] {
+    const revisions = context.prompt_revisions || [];
+    const idsByManifestId = new Map(revisions.map((revision) => [revision.id, randomUUID()]));
+
+    return revisions.map((revision) => {
+      const sourceGuidanceId = revision.source_guidance_id?.trim() || null;
+      if (sourceGuidanceId) {
+        throw withFailedItem(
+          new Error("Eval manifest prompt revision source_guidance_id cannot be imported before saved evaluations exist."),
+          sourceGuidanceId
+        );
+      }
+
+      const parentManifestId = revision.parent_prompt_revision_id?.trim() || null;
+      return {
+        id: idsByManifestId.get(revision.id)!,
+        manifestId: revision.id,
+        contextId: plannedContext.id,
+        parentManifestId,
+        parentPromptRevisionId: parentManifestId ? idsByManifestId.get(parentManifestId) || null : null,
+        sourceGuidanceId: null,
+        revisionLabel: revision.revision_label?.trim() || null,
+        revisionNote: revision.revision_note?.trim() || null,
+        promptText: revision.prompt_text.trim(),
+        negativePrompt: revision.negative_prompt?.trim() || null,
+        parametersJson: normalizeParametersJson(revision.parameters_json, revision.id),
+        expectedEffectiveness: revision.expected_effectiveness || null
+      };
+    });
   }
 
   private planSourceAsset(
@@ -272,16 +350,29 @@ export class EvalManifestImporter {
 
   private planCandidate(
     datasetRoot: string,
-    context: EvalManifestContext,
     plannedContext: PlannedContext,
     candidate: EvalManifestCandidate,
+    contextPromptRevisions: PlannedPromptRevision[],
+    inferredRevisionByPrompt: Map<string, PlannedPromptRevision>,
+    inferPromptRevisions: boolean,
     allowMissingFiles: boolean
   ): PlannedCandidate {
     const promptMissing = candidate.prompt_missing;
     const recoveryNote = candidate.recovery_note?.trim() || null;
+    const explicitRevision = candidate.prompt_revision_id
+      ? contextPromptRevisions.find((revision) => revision.manifestId === candidate.prompt_revision_id)
+      : undefined;
+    if (candidate.prompt_revision_id && !explicitRevision) {
+      throw withFailedItem(new Error(`Unknown prompt revision id '${candidate.prompt_revision_id}'.`), candidate.prompt_revision_id);
+    }
     const promptText = promptMissing
       ? null
-      : candidate.prompt_text?.trim() || plannedContext.sourcePrompt || null;
+      : candidate.prompt_text?.trim() || explicitRevision?.promptText || plannedContext.sourcePrompt || null;
+    const promptRevisionId =
+      explicitRevision?.id ||
+      (inferPromptRevisions && promptText
+        ? this.getOrCreateInferredPromptRevision(plannedContext, promptText, contextPromptRevisions, inferredRevisionByPrompt).id
+        : null);
     const absoluteDatasetPath = resolveDatasetAssetPath(datasetRoot, candidate.image_path);
 
     return {
@@ -289,6 +380,7 @@ export class EvalManifestImporter {
       evaluationId: randomUUID(),
       manifestId: candidate.id,
       contextId: plannedContext.id,
+      promptRevisionId,
       expectedDecision: candidate.expected_decision,
       humanReason: candidate.human_reason.trim(),
       promptText,
@@ -301,6 +393,37 @@ export class EvalManifestImporter {
         ? absoluteDatasetPath
         : ensureDatasetFileExists(absoluteDatasetPath, candidate.image_path)
     };
+  }
+
+  private getOrCreateInferredPromptRevision(
+    plannedContext: PlannedContext,
+    promptText: string,
+    contextPromptRevisions: PlannedPromptRevision[],
+    inferredRevisionByPrompt: Map<string, PlannedPromptRevision>
+  ): PlannedPromptRevision {
+    const key = `${plannedContext.id}\u0000${promptText}`;
+    const existing = inferredRevisionByPrompt.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const revision: PlannedPromptRevision = {
+      id: randomUUID(),
+      manifestId: `inferred:${plannedContext.manifestId}:${contextPromptRevisions.length + 1}`,
+      contextId: plannedContext.id,
+      parentManifestId: null,
+      parentPromptRevisionId: null,
+      sourceGuidanceId: null,
+      revisionLabel: null,
+      revisionNote: "Inferred from imported candidate prompt.",
+      promptText,
+      negativePrompt: null,
+      parametersJson: null,
+      expectedEffectiveness: null
+    };
+    inferredRevisionByPrompt.set(key, revision);
+    contextPromptRevisions.push(revision);
+    return revision;
   }
 
   private async stageFiles(plan: ImportPlan, result: EvalImportResult): Promise<void> {
@@ -362,6 +485,24 @@ export class EvalManifestImporter {
         ).run(context.id, plan.profile.id, context.name, context.generationGoal);
       }
 
+      for (const revision of orderPromptRevisionsForInsert(plan.promptRevisions)) {
+        db.prepare(
+          `INSERT INTO prompt_revisions
+            (id, generation_context_id, parent_prompt_revision_id, source_guidance_id, revision_label, revision_note, prompt_text, negative_prompt, parameters_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          revision.id,
+          revision.contextId,
+          revision.parentPromptRevisionId,
+          revision.sourceGuidanceId,
+          revision.revisionLabel,
+          revision.revisionNote,
+          revision.promptText,
+          revision.negativePrompt,
+          revision.parametersJson
+        );
+      }
+
       for (const asset of plan.sourceAssets) {
         if (!asset.staged) {
           throw withFailedItem(new Error("Source asset was not staged before commit."), asset.relativeManifestPath);
@@ -401,11 +542,12 @@ export class EvalManifestImporter {
 
         db.prepare(
           `INSERT INTO candidate_images
-            (id, generation_context_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
-           VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`
+            (id, generation_context_id, prompt_revision_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
         ).run(
           candidate.id,
           candidate.contextId,
+          candidate.promptRevisionId,
           candidate.staged.filePath,
           candidate.staged.thumbnailPath,
           candidate.promptText,
@@ -450,6 +592,7 @@ function plannedCounts(plan: ImportPlan): EvalImportCounts {
     reference_assets: plan.sourceAssets.length,
     generation_contexts: plan.contexts.length,
     generation_context_assets: plan.sourceAssets.length,
+    prompt_revisions: plan.promptRevisions.length,
     candidate_images: plan.candidates.length,
     evaluations: plan.candidates.length
   };
@@ -467,6 +610,7 @@ function emptyResult(datasetRoot: string, dryRun: boolean): EvalImportResult {
       reference_assets: 0,
       generation_contexts: 0,
       generation_context_assets: 0,
+      prompt_revisions: 0,
       candidate_images: 0,
       evaluations: 0
     },
@@ -512,4 +656,57 @@ function withFailedItem(error: Error, failedItemPath: string): Error & { failedI
 
 function dedupe(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function normalizeParametersJson(
+  value: EvalManifestPromptRevision["parameters_json"],
+  failedItemPath: string
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = typeof value === "string" ? parseParametersJson(value, failedItemPath) : value;
+  if (!isPlainObject(parsed)) {
+    throw withFailedItem(new Error("Prompt revision parameters_json must be a plain object."), failedItemPath);
+  }
+
+  const canonical = JSON.stringify(parsed);
+  if (Buffer.byteLength(canonical, "utf8") > 8192) {
+    throw withFailedItem(new Error("Prompt revision parameters_json must be 8KB or smaller."), failedItemPath);
+  }
+  return canonical;
+}
+
+function parseParametersJson(value: string, failedItemPath: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw withFailedItem(new Error("Prompt revision parameters_json must be valid JSON."), failedItemPath);
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function orderPromptRevisionsForInsert(revisions: PlannedPromptRevision[]): PlannedPromptRevision[] {
+  const remaining = new Map(revisions.map((revision) => [revision.id, revision]));
+  const ordered: PlannedPromptRevision[] = [];
+
+  while (remaining.size > 0) {
+    const next = [...remaining.values()].find(
+      (revision) => !revision.parentPromptRevisionId || !remaining.has(revision.parentPromptRevisionId)
+    );
+    if (!next) {
+      throw new Error("Prompt revision parent cycle detected.");
+    }
+    ordered.push(next);
+    remaining.delete(next.id);
+  }
+
+  return ordered;
 }

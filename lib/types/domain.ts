@@ -74,9 +74,24 @@ export interface GenerationContextAsset {
   created_at: string;
 }
 
+export interface PromptRevision {
+  id: string;
+  generation_context_id: string;
+  parent_prompt_revision_id: string | null;
+  source_guidance_id: string | null;
+  revision_label: string | null;
+  revision_note: string | null;
+  prompt_text: string;
+  negative_prompt: string | null;
+  parameters_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CandidateImage {
   id: string;
   generation_context_id: string;
+  prompt_revision_id: string | null;
   file_path: string;
   thumbnail_path: string | null;
   generation_tool: string | null;

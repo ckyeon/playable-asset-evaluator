@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS generation_context_assets (
 CREATE TABLE IF NOT EXISTS candidate_images (
   id TEXT PRIMARY KEY,
   generation_context_id TEXT NOT NULL REFERENCES generation_contexts(id) ON DELETE CASCADE,
+  prompt_revision_id TEXT REFERENCES prompt_revisions(id) ON DELETE SET NULL,
   file_path TEXT NOT NULL,
   thumbnail_path TEXT,
   generation_tool TEXT,
@@ -65,6 +66,20 @@ CREATE TABLE IF NOT EXISTS candidate_images (
   source_integrity TEXT NOT NULL DEFAULT 'complete' CHECK (source_integrity IN ('complete', 'incomplete')),
   recovery_note TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS prompt_revisions (
+  id TEXT PRIMARY KEY,
+  generation_context_id TEXT NOT NULL REFERENCES generation_contexts(id) ON DELETE CASCADE,
+  parent_prompt_revision_id TEXT REFERENCES prompt_revisions(id) ON DELETE SET NULL,
+  source_guidance_id TEXT REFERENCES prompt_guidance(id) ON DELETE SET NULL,
+  revision_label TEXT,
+  revision_note TEXT,
+  prompt_text TEXT NOT NULL,
+  negative_prompt TEXT,
+  parameters_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS evaluations (
@@ -107,6 +122,9 @@ CREATE INDEX IF NOT EXISTS idx_generation_contexts_profile_updated ON generation
 CREATE INDEX IF NOT EXISTS idx_generation_context_assets_context_origin ON generation_context_assets(generation_context_id, origin, created_at);
 CREATE INDEX IF NOT EXISTS idx_generation_context_assets_reference ON generation_context_assets(reference_asset_id);
 CREATE INDEX IF NOT EXISTS idx_candidates_context_integrity ON candidate_images(generation_context_id, prompt_missing, source_integrity);
+CREATE INDEX IF NOT EXISTS idx_candidates_prompt_revision ON candidate_images(prompt_revision_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_revisions_context_parent ON prompt_revisions(generation_context_id, parent_prompt_revision_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_prompt_revisions_source_guidance ON prompt_revisions(source_guidance_id);
 CREATE INDEX IF NOT EXISTS idx_evaluations_candidate ON evaluations(candidate_image_id);
 CREATE INDEX IF NOT EXISTS idx_evaluations_label_confidence_created ON evaluations(decision_label, confidence_state, created_at);
 CREATE INDEX IF NOT EXISTS idx_criteria_eval_criterion ON evaluation_criteria(evaluation_id, criterion);

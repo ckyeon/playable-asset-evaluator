@@ -26,11 +26,13 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         candidate_count: context.candidates.length,
         saved_judgment_count: context.candidates.flatMap((candidate) =>
           candidate.evaluations.filter((evaluation) => evaluation.evaluation_state === "saved")
-        ).length
+        ).length,
+        promptRevisions: context.promptRevisions
       })),
       candidates: data.contexts.flatMap((context) =>
-        context.candidates.map(({ candidate }) => ({
+        context.candidates.map(({ candidate, promptRevision }) => ({
           ...candidate,
+          promptRevision,
           imageUrl: toAssetUrl(candidate.thumbnail_path || candidate.file_path),
           originalUrl: toAssetUrl(candidate.file_path)
         }))

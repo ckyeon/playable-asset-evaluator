@@ -8,9 +8,19 @@ import {
   ContextSourceAssets,
   HistoryPanel,
   JudgmentPanel,
+  PromptRevisionStrip,
   ReferenceAssetsPanel
 } from "./workspace-components";
-import type { Candidate, DecisionLabel, Draft, HistoryItem, ProfileDetail, StyleProfile, WorkspaceStatus } from "./workspace-types";
+import type {
+  Candidate,
+  DecisionLabel,
+  Draft,
+  HistoryItem,
+  ProfileDetail,
+  RevisionUploadMode,
+  StyleProfile,
+  WorkspaceStatus
+} from "./workspace-types";
 
 export function WorkspaceClient() {
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
@@ -21,6 +31,7 @@ export function WorkspaceClient() {
   const [detail, setDetail] = useState<ProfileDetail | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [selectedContextId, setSelectedContextId] = useState<string | null>(null);
+  const [selectedPromptRevisionId, setSelectedPromptRevisionId] = useState<string | null>(null);
   const [currentCandidate, setCurrentCandidate] = useState<Candidate | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [newProfileName, setNewProfileName] = useState("");
@@ -35,6 +46,13 @@ export function WorkspaceClient() {
   const [promptMissing, setPromptMissing] = useState(false);
   const [recoveryNote, setRecoveryNote] = useState("");
   const [generationTool, setGenerationTool] = useState("NanoBanana2");
+  const [revisionUploadMode, setRevisionUploadMode] = useState<RevisionUploadMode>("new_root");
+  const [parentPromptRevisionId, setParentPromptRevisionId] = useState<string | null>(null);
+  const [attachPromptRevisionId, setAttachPromptRevisionId] = useState<string | null>(null);
+  const [revisionLabel, setRevisionLabel] = useState("");
+  const [revisionNote, setRevisionNote] = useState("");
+  const [negativePrompt, setNegativePrompt] = useState("");
+  const [parametersJson, setParametersJson] = useState("");
   const [decisionLabel, setDecisionLabel] = useState<DecisionLabel>("needs_edit");
   const [humanReason, setHumanReason] = useState("");
   const [guidanceText, setGuidanceText] = useState("");
@@ -52,6 +70,16 @@ export function WorkspaceClient() {
     () => detail?.candidates.filter((candidate) => candidate.generation_context_id === activeContext?.id) || [],
     [activeContext?.id, detail?.candidates]
   );
+
+  const activePromptRevisions = useMemo(() => activeContext?.promptRevisions || [], [activeContext?.promptRevisions]);
+  const activePromptRevisionIds = useMemo(
+    () => new Set(activePromptRevisions.map((revision) => revision.id)),
+    [activePromptRevisions]
+  );
+  const defaultRevisionTargetId =
+    selectedPromptRevisionId && activePromptRevisionIds.has(selectedPromptRevisionId)
+      ? selectedPromptRevisionId
+      : activePromptRevisions[0]?.id || null;
 
   const loadProfiles = useCallback(async () => {
     const response = await fetch("/api/style-profiles", { cache: "no-store" });
@@ -95,6 +123,8 @@ export function WorkspaceClient() {
 
   useEffect(() => {
     if (!activeContext) {
+      setSelectedPromptRevisionId(null);
+      resetRevisionAuthoring(null);
       return;
     }
     if (!currentCandidate || currentCandidate.generation_context_id !== activeContext.id) {
@@ -104,6 +134,35 @@ export function WorkspaceClient() {
       }
     }
   }, [activeContext, activeContextCandidates, currentCandidate]);
+
+  useEffect(() => {
+    if (!activeContext) {
+      return;
+    }
+    if (revisionUploadMode !== "new_root" && activePromptRevisions.length === 0) {
+      setRevisionUploadMode("new_root");
+    }
+    setParentPromptRevisionId((current) =>
+      current && activePromptRevisionIds.has(current) ? current : defaultRevisionTargetId
+    );
+    setAttachPromptRevisionId((current) =>
+      current && activePromptRevisionIds.has(current) ? current : defaultRevisionTargetId
+    );
+  }, [activeContext, activePromptRevisionIds, activePromptRevisions.length, defaultRevisionTargetId, revisionUploadMode]);
+
+  useEffect(() => {
+    if (!activeContext) {
+      setSelectedPromptRevisionId(null);
+      return;
+    }
+    if (currentCandidate?.generation_context_id === activeContext.id) {
+      setSelectedPromptRevisionId(currentCandidate.prompt_revision_id || null);
+      return;
+    }
+    setSelectedPromptRevisionId((current) =>
+      current && activePromptRevisions.some((revision) => revision.id === current) ? current : activePromptRevisions[0]?.id || null
+    );
+  }, [activeContext, activePromptRevisions, currentCandidate?.generation_context_id, currentCandidate?.prompt_revision_id]);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -125,6 +184,11 @@ export function WorkspaceClient() {
 
   function selectCandidate(candidate: Candidate) {
     setCurrentCandidate(candidate);
+    setSelectedPromptRevisionId(candidate.prompt_revision_id || null);
+    if (candidate.prompt_revision_id) {
+      setParentPromptRevisionId(candidate.prompt_revision_id);
+      setAttachPromptRevisionId(candidate.prompt_revision_id);
+    }
     setPromptText(candidate.prompt_text || "");
     setPromptMissing(candidate.prompt_missing === 1 || !candidate.prompt_text);
     setRecoveryNote(candidate.recovery_note || "");
@@ -140,6 +204,33 @@ export function WorkspaceClient() {
       setDecisionLabel("needs_edit");
       setHumanReason("");
       setGuidanceText("");
+    }
+  }
+
+  function selectPromptRevision(revisionId: string) {
+    setSelectedPromptRevisionId(revisionId);
+    setParentPromptRevisionId(revisionId);
+    setAttachPromptRevisionId(revisionId);
+    const linkedCandidate = activeContextCandidates.find((candidate) => candidate.prompt_revision_id === revisionId);
+    if (linkedCandidate) {
+      selectCandidate(linkedCandidate);
+    }
+  }
+
+  function resetRevisionAuthoring(defaultRevisionId = defaultRevisionTargetId) {
+    setRevisionUploadMode("new_root");
+    setParentPromptRevisionId(defaultRevisionId);
+    setAttachPromptRevisionId(defaultRevisionId);
+    setRevisionLabel("");
+    setRevisionNote("");
+    setNegativePrompt("");
+    setParametersJson("");
+  }
+
+  function handlePromptMissingChange(value: boolean) {
+    setPromptMissing(value);
+    if (value) {
+      resetRevisionAuthoring();
     }
   }
 
@@ -194,6 +285,8 @@ export function WorkspaceClient() {
       setGenerationGoal("");
       setContextPrompt("");
       setSelectedContextId(data.generationContext.id);
+      setSelectedPromptRevisionId(null);
+      resetRevisionAuthoring(null);
       await loadDetail(selectedProfileId, data.generationContext.id);
       setStatus({ kind: "ok", text: "Generation context created." });
     } catch (error) {
@@ -297,12 +390,41 @@ export function WorkspaceClient() {
     }
     setBusy("candidate");
     try {
+      const normalizedParametersJson =
+        !promptMissing && revisionUploadMode !== "attach_existing" ? normalizeParametersJsonForUpload(parametersJson) : null;
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("promptText", promptText);
-      formData.append("promptMissing", String(promptMissing || !promptText.trim()));
       formData.append("recoveryNote", recoveryNote);
       formData.append("generationTool", generationTool);
+      if (promptMissing) {
+        formData.append("promptMissing", "true");
+      } else if (revisionUploadMode === "attach_existing") {
+        const targetRevisionId = attachPromptRevisionId || defaultRevisionTargetId;
+        if (!targetRevisionId) {
+          throw new Error("Select a prompt revision to attach.");
+        }
+        formData.append("promptRevisionId", targetRevisionId);
+        formData.append("promptMissing", "false");
+      } else {
+        if (revisionUploadMode === "new_child") {
+          const parentRevisionId = parentPromptRevisionId || defaultRevisionTargetId;
+          if (!parentRevisionId) {
+            throw new Error("Select a parent prompt revision.");
+          }
+          if (!promptText.trim()) {
+            throw new Error("Prompt text is required to create a child revision.");
+          }
+          formData.append("parentPromptRevisionId", parentRevisionId);
+        }
+        formData.append("promptText", promptText);
+        formData.append("promptMissing", String(!promptText.trim()));
+        appendIfPresent(formData, "revisionLabel", revisionLabel);
+        appendIfPresent(formData, "revisionNote", revisionNote);
+        appendIfPresent(formData, "negativePrompt", negativePrompt);
+        if (normalizedParametersJson) {
+          formData.append("parametersJson", normalizedParametersJson);
+        }
+      }
 
       const response = await fetch(`/api/generation-contexts/${activeContext.id}/candidates`, {
         method: "POST",
@@ -315,6 +437,10 @@ export function WorkspaceClient() {
 
       selectCandidate(data.candidate);
       await loadDetail(selectedProfileId);
+      setRevisionLabel("");
+      setRevisionNote("");
+      setNegativePrompt("");
+      setParametersJson("");
       setStatus({ kind: "ok", text: "Candidate image saved." });
     } finally {
       setBusy(null);
@@ -432,6 +558,8 @@ export function WorkspaceClient() {
         throw new Error(data.error);
       }
       setCurrentCandidate(null);
+      setSelectedPromptRevisionId(null);
+      resetRevisionAuthoring(null);
       setDraft(null);
       setPromptText("");
       setPromptMissing(false);
@@ -476,11 +604,15 @@ export function WorkspaceClient() {
           onSelectProfile={(profileId) => {
             setSelectedProfileId(profileId);
             setSelectedContextId(null);
+            setSelectedPromptRevisionId(null);
+            resetRevisionAuthoring(null);
             setCurrentCandidate(null);
             setDraft(null);
           }}
           onSelectContext={(contextId) => {
             setSelectedContextId(contextId);
+            setSelectedPromptRevisionId(null);
+            resetRevisionAuthoring(null);
             setCurrentCandidate(null);
             setDraft(null);
           }}
@@ -497,6 +629,12 @@ export function WorkspaceClient() {
         <section className="main-workspace" aria-label="Generation context workspace">
           <div className="stack">
             <ActiveContextHeader activeContext={activeContext} profile={detail?.profile} selectedProfileId={selectedProfileId} />
+
+            <PromptRevisionStrip
+              activeContext={activeContext}
+              selectedPromptRevisionId={selectedPromptRevisionId}
+              onSelectRevision={selectPromptRevision}
+            />
 
             <ContextSourceAssets
               activeContext={activeContext}
@@ -531,11 +669,27 @@ export function WorkspaceClient() {
                 promptMissing={promptMissing}
                 recoveryNote={recoveryNote}
                 generationTool={generationTool}
+                promptRevisions={activePromptRevisions}
+                selectedPromptRevisionId={selectedPromptRevisionId}
+                revisionUploadMode={revisionUploadMode}
+                parentPromptRevisionId={parentPromptRevisionId}
+                attachPromptRevisionId={attachPromptRevisionId}
+                revisionLabel={revisionLabel}
+                revisionNote={revisionNote}
+                negativePrompt={negativePrompt}
+                parametersJson={parametersJson}
                 busy={busy}
                 onPromptTextChange={setPromptText}
-                onPromptMissingChange={setPromptMissing}
+                onPromptMissingChange={handlePromptMissingChange}
                 onRecoveryNoteChange={setRecoveryNote}
                 onGenerationToolChange={setGenerationTool}
+                onRevisionUploadModeChange={setRevisionUploadMode}
+                onParentPromptRevisionIdChange={setParentPromptRevisionId}
+                onAttachPromptRevisionIdChange={setAttachPromptRevisionId}
+                onRevisionLabelChange={setRevisionLabel}
+                onRevisionNoteChange={setRevisionNote}
+                onNegativePromptChange={setNegativePrompt}
+                onParametersJsonChange={setParametersJson}
                 onUploadCandidate={(file) =>
                   uploadCandidate(file).catch((error) =>
                     setStatus({ kind: "error", text: error instanceof Error ? error.message : "Upload failed." })
@@ -570,4 +724,31 @@ export function WorkspaceClient() {
       </div>
     </main>
   );
+}
+
+function appendIfPresent(formData: FormData, key: string, value: string): void {
+  const trimmed = value.trim();
+  if (trimmed) {
+    formData.append(key, trimmed);
+  }
+}
+
+function normalizeParametersJsonForUpload(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("Parameters JSON must be a valid JSON object.");
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || Object.getPrototypeOf(parsed) !== Object.prototype) {
+    throw new Error("Parameters JSON must be a valid JSON object.");
+  }
+
+  return JSON.stringify(parsed);
 }

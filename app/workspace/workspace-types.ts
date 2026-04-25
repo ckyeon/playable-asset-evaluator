@@ -1,5 +1,15 @@
 export type DecisionLabel = "good" | "needs_edit" | "reject";
 export type ConfidenceState = "normal" | "low_confidence";
+export type RevisionUploadMode = "new_root" | "new_child" | "attach_existing";
+export type PromptRevisionEffectiveness = "improved" | "flat" | "regressed" | "unknown";
+export type PromptRevisionEffectivenessReason =
+  | "improved"
+  | "flat"
+  | "regressed"
+  | "root_revision"
+  | "no_saved_evaluation"
+  | "parent_no_saved_evaluation"
+  | "broken_lineage";
 
 export interface StyleProfile {
   id: string;
@@ -34,6 +44,7 @@ export interface GenerationContext {
   candidate_count: number;
   saved_judgment_count: number;
   sourceAssets: ContextSourceAsset[];
+  promptRevisions: PromptRevision[];
 }
 
 export interface ContextSourceAsset {
@@ -51,14 +62,34 @@ export interface ContextSourceAsset {
 export interface Candidate {
   id: string;
   generation_context_id: string;
+  prompt_revision_id: string | null;
   file_path: string;
   thumbnail_path: string | null;
   prompt_text: string | null;
   prompt_missing: 0 | 1;
   recovery_note: string | null;
   source_integrity: "complete" | "incomplete";
+  promptRevision: PromptRevision | null;
   imageUrl: string | null;
   originalUrl: string | null;
+}
+
+export interface PromptRevision {
+  id: string;
+  generation_context_id: string;
+  parent_prompt_revision_id: string | null;
+  source_guidance_id: string | null;
+  revision_label: string | null;
+  revision_note: string | null;
+  prompt_text: string;
+  negative_prompt: string | null;
+  parameters_json: string | null;
+  created_at: string;
+  updated_at: string;
+  candidate_ids: string[];
+  candidate_count: number;
+  effectiveness: PromptRevisionEffectiveness;
+  effectiveness_reason: PromptRevisionEffectivenessReason;
 }
 
 export interface Criterion {

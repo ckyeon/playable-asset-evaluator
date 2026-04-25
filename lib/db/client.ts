@@ -28,10 +28,12 @@ export function getDb(): Database.Database {
   const schema = readFileSync(path.join(process.cwd(), "lib", "db", "schema.sql"), "utf8");
   if (tableExists(db, "style_profiles")) {
     runGenerationContextMigration(db, dbPath, dbExisted);
+    runPromptRevisionMigration(db, dbPath, dbExisted);
   }
   db.exec(schema);
   seedDefaultData(db);
   markMigrationApplied(db, GENERATION_CONTEXT_MIGRATION);
+  markMigrationApplied(db, PROMPT_REVISION_MIGRATION);
 
   cachedDb = db;
   cachedDbPath = dbPath;
@@ -47,6 +49,7 @@ export function closeDbForTests(): void {
 }
 
 const GENERATION_CONTEXT_MIGRATION = "20260423_generation_context";
+const PROMPT_REVISION_MIGRATION = "20260425_prompt_revisions";
 
 function ensureSchemaMigrationsTable(db: Database.Database): void {
   db.exec(`
@@ -197,6 +200,127 @@ function runGenerationContextMigration(db: Database.Database, dbPath: string, db
     migrate();
   } finally {
     db.pragma("foreign_keys = ON");
+  }
+}
+
+function runPromptRevisionMigration(db: Database.Database, dbPath: string, dbExisted: boolean): void {
+  const needsMigration =
+    !tableExists(db, "prompt_revisions") ||
+    (tableExists(db, "candidate_images") && !tableHasColumn(db, "candidate_images", "prompt_revision_id")) ||
+    hasUnlinkedCandidatePrompts(db);
+
+  if (!needsMigration) {
+    markMigrationApplied(db, PROMPT_REVISION_MIGRATION);
+    return;
+  }
+
+  if (dbExisted && !isMigrationApplied(db, PROMPT_REVISION_MIGRATION)) {
+    backupDatabase(db, dbPath);
+  }
+
+  const migrate = db.transaction(() => {
+    ensurePromptRevisionSchema(db);
+    backfillPromptRevisions(db);
+    markMigrationApplied(db, PROMPT_REVISION_MIGRATION);
+  });
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    migrate();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
+
+function ensurePromptRevisionSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prompt_revisions (
+      id TEXT PRIMARY KEY,
+      generation_context_id TEXT NOT NULL REFERENCES generation_contexts(id) ON DELETE CASCADE,
+      parent_prompt_revision_id TEXT REFERENCES prompt_revisions(id) ON DELETE SET NULL,
+      source_guidance_id TEXT REFERENCES prompt_guidance(id) ON DELETE SET NULL,
+      revision_label TEXT,
+      revision_note TEXT,
+      prompt_text TEXT NOT NULL,
+      negative_prompt TEXT,
+      parameters_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+  `);
+
+  if (tableExists(db, "candidate_images") && !tableHasColumn(db, "candidate_images", "prompt_revision_id")) {
+    db.exec("ALTER TABLE candidate_images ADD COLUMN prompt_revision_id TEXT REFERENCES prompt_revisions(id) ON DELETE SET NULL;");
+  }
+}
+
+function hasUnlinkedCandidatePrompts(db: Database.Database): boolean {
+  if (!tableExists(db, "candidate_images") || !tableHasColumn(db, "candidate_images", "prompt_revision_id")) {
+    return false;
+  }
+
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM candidate_images
+       WHERE prompt_revision_id IS NULL
+         AND prompt_text IS NOT NULL
+         AND TRIM(prompt_text) <> ''`
+    )
+    .get() as { count: number };
+  return row.count > 0;
+}
+
+function backfillPromptRevisions(db: Database.Database): void {
+  if (!tableExists(db, "candidate_images") || !tableHasColumn(db, "candidate_images", "prompt_revision_id")) {
+    return;
+  }
+
+  const candidates = db
+    .prepare(
+      `SELECT id, generation_context_id, prompt_text, created_at
+       FROM candidate_images
+       WHERE prompt_revision_id IS NULL
+         AND prompt_text IS NOT NULL
+         AND TRIM(prompt_text) <> ''
+       ORDER BY generation_context_id, TRIM(prompt_text), created_at, id`
+    )
+    .all() as Array<{ id: string; generation_context_id: string; prompt_text: string; created_at: string }>;
+
+  const revisionIdsByPrompt = new Map<string, string>();
+
+  for (const candidate of candidates) {
+    const promptText = candidate.prompt_text.trim();
+    const key = `${candidate.generation_context_id}\u0000${promptText}`;
+    let revisionId = revisionIdsByPrompt.get(key);
+
+    if (!revisionId) {
+      const existing = db
+        .prepare(
+          `SELECT id
+           FROM prompt_revisions
+           WHERE generation_context_id = ?
+             AND parent_prompt_revision_id IS NULL
+             AND source_guidance_id IS NULL
+             AND prompt_text = ?
+           ORDER BY created_at, id
+           LIMIT 1`
+        )
+        .get(candidate.generation_context_id, promptText) as { id: string } | undefined;
+
+      revisionId = existing?.id || randomUUID();
+      revisionIdsByPrompt.set(key, revisionId);
+
+      if (!existing) {
+        db.prepare(
+          `INSERT INTO prompt_revisions
+            (id, generation_context_id, parent_prompt_revision_id, source_guidance_id, revision_label, revision_note, prompt_text, negative_prompt, parameters_json, created_at, updated_at)
+           VALUES (?, ?, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?)`
+        ).run(revisionId, candidate.generation_context_id, promptText, candidate.created_at, candidate.created_at);
+      }
+    }
+
+    db.prepare("UPDATE candidate_images SET prompt_revision_id = ? WHERE id = ?").run(revisionId, candidate.id);
   }
 }
 

@@ -80,7 +80,9 @@ describe("generation context migration", () => {
 
       INSERT INTO style_profiles VALUES ('profile-1', 'Profile', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
       INSERT INTO evaluation_sessions VALUES ('session-1', 'profile-1', 'Old Session', 'Old source context', '2026-01-01T00:00:00.000Z');
-      INSERT INTO candidate_images VALUES ('candidate-1', 'session-1', 'assets/candidate.png', NULL, 'tool', 'prompt', 0, 'complete', NULL, '2026-01-01T00:00:01.000Z');
+      INSERT INTO candidate_images VALUES ('candidate-1', 'session-1', 'assets/candidate.png', NULL, 'tool', '  prompt  ', 0, 'complete', NULL, '2026-01-01T00:00:01.000Z');
+      INSERT INTO candidate_images VALUES ('candidate-2', 'session-1', 'assets/candidate-2.png', NULL, 'tool', 'prompt', 0, 'complete', NULL, '2026-01-01T00:00:04.000Z');
+      INSERT INTO candidate_images VALUES ('candidate-3', 'session-1', 'assets/candidate-3.png', NULL, 'tool', NULL, 1, 'incomplete', 'missing prompt', '2026-01-01T00:00:05.000Z');
       INSERT INTO evaluations VALUES ('evaluation-1', 'candidate-1', 'model', 77, 'needs_edit', 'reason', 'summary', '{}', 'normal', 'saved', '2026-01-01T00:00:02.000Z');
       INSERT INTO evaluation_criteria VALUES ('criterion-1', 'evaluation-1', 'style_match', 77, 'old reason');
       INSERT INTO prompt_guidance VALUES ('guidance-1', 'profile-1', 'evaluation-1', 'next prompt', 'normal', NULL, '2026-01-01T00:00:03.000Z');
@@ -95,6 +97,32 @@ describe("generation context migration", () => {
     expect(db.prepare("SELECT generation_context_id FROM candidate_images WHERE id = ?").get("candidate-1")).toEqual({
       generation_context_id: "session-1"
     });
+    const candidateLinks = db
+      .prepare("SELECT id, prompt_revision_id FROM candidate_images ORDER BY id")
+      .all() as Array<{ id: string; prompt_revision_id: string | null }>;
+    expect(candidateLinks[0].prompt_revision_id).toBeTruthy();
+    expect(candidateLinks[1].prompt_revision_id).toBe(candidateLinks[0].prompt_revision_id);
+    expect(candidateLinks[2]).toEqual({ id: "candidate-3", prompt_revision_id: null });
+
+    expect(
+      db
+        .prepare(
+          `SELECT generation_context_id, parent_prompt_revision_id, source_guidance_id, revision_label, revision_note, prompt_text, negative_prompt, parameters_json
+           FROM prompt_revisions`
+        )
+        .all()
+    ).toEqual([
+      {
+        generation_context_id: "session-1",
+        parent_prompt_revision_id: null,
+        source_guidance_id: null,
+        revision_label: null,
+        revision_note: null,
+        prompt_text: "prompt",
+        negative_prompt: null,
+        parameters_json: null
+      }
+    ]);
     expect(db.prepare("SELECT rubric_version FROM evaluations WHERE id = ?").get("evaluation-1")).toEqual({
       rubric_version: "v1_style_profile"
     });
@@ -105,11 +133,38 @@ describe("generation context migration", () => {
     ).not.toThrow();
     expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260423_generation_context"))
       .toBeTruthy();
+    expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260425_prompt_revisions"))
+      .toBeTruthy();
     expect(existsSync(`${dataDir}/backups`)).toBe(true);
     expect(readdirSync(`${dataDir}/backups`).some((file) => file.endsWith(".sqlite"))).toBe(true);
 
     closeDbForTests();
     const rerun = getDb();
     expect(rerun.prepare("SELECT COUNT(*) AS count FROM generation_contexts").get()).toEqual({ count: 1 });
+    expect(rerun.prepare("SELECT COUNT(*) AS count FROM prompt_revisions").get()).toEqual({ count: 1 });
+  });
+
+  it("creates prompt revision tables and candidate links for fresh databases", () => {
+    useTempDataDir();
+    const db = getDb();
+    const promptRevisionColumns = db.prepare("PRAGMA table_info(prompt_revisions)").all() as Array<{ name: string }>;
+    const candidateColumns = db.prepare("PRAGMA table_info(candidate_images)").all() as Array<{ name: string }>;
+
+    expect(promptRevisionColumns.map((column) => column.name)).toEqual([
+      "id",
+      "generation_context_id",
+      "parent_prompt_revision_id",
+      "source_guidance_id",
+      "revision_label",
+      "revision_note",
+      "prompt_text",
+      "negative_prompt",
+      "parameters_json",
+      "created_at",
+      "updated_at"
+    ]);
+    expect(candidateColumns.some((column) => column.name === "prompt_revision_id")).toBe(true);
+    expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260425_prompt_revisions"))
+      .toBeTruthy();
   });
 });

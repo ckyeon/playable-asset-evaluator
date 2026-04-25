@@ -9,7 +9,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const { id } = await context.params;
     const data = loadProfileContextReadModel(id);
     const history = data.contexts.flatMap((context) =>
-      context.candidates.map(({ candidate, evaluations }) => ({
+      context.candidates.map(({ candidate, promptRevision, evaluations }) => ({
         generationContext: {
           ...context.context,
           reference_strength: context.reference_strength,
@@ -17,6 +17,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         },
         candidate: {
           ...candidate,
+          promptRevision,
           imageUrl: toAssetUrl(candidate.thumbnail_path || candidate.file_path),
           originalUrl: toAssetUrl(candidate.file_path)
         },

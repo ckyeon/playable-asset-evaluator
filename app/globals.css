@@ -239,6 +239,19 @@ button {
   min-height: 76px;
 }
 
+.textarea-readonly {
+  background: #f4f0e8;
+  color: var(--muted);
+}
+
+.mono-textarea {
+  font:
+    12px/1.45 "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+}
+
 .input:focus,
 .textarea:focus,
 .select:focus {
@@ -324,6 +337,185 @@ button {
   background: #fff6e6;
   color: #734708;
   padding: 1px 7px;
+}
+
+.prompt-revision-strip {
+  padding-bottom: 12px;
+}
+
+.prompt-revision-empty {
+  margin-top: 10px;
+}
+
+.prompt-revision-list,
+.prompt-revision-compact {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.prompt-revision-compact {
+  display: none;
+}
+
+.prompt-revision-row-shell {
+  display: grid;
+  gap: 6px;
+}
+
+.prompt-revision-row {
+  display: grid;
+  grid-template-columns: 34px minmax(130px, 0.9fr) max-content 96px minmax(180px, 1.4fr) max-content;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--text);
+  cursor: pointer;
+  padding: 6px 10px;
+  outline: none;
+}
+
+.prompt-revision-row:hover,
+.prompt-revision-row:focus {
+  border-color: var(--accent);
+}
+
+.prompt-revision-row:focus {
+  box-shadow: 0 0 0 3px rgb(47 111 115 / 14%);
+}
+
+.prompt-revision-row.is-selected {
+  border-color: var(--accent);
+  background: #f3fbfa;
+}
+
+.revision-branch {
+  color: var(--border-strong);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.revision-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.revision-title strong,
+.revision-title span,
+.revision-preview,
+.revision-count {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revision-title strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.revision-title span,
+.revision-count,
+.revision-preview {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.revision-effectiveness {
+  justify-self: start;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.3;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.revision-effectiveness--improved {
+  border-color: rgb(47 122 79 / 35%);
+  background: #edf7f0;
+  color: #1f5a38;
+}
+
+.revision-effectiveness--flat {
+  border-color: rgb(47 111 115 / 30%);
+  background: #edf6f6;
+  color: var(--accent-strong);
+}
+
+.revision-effectiveness--regressed {
+  border-color: rgb(166 63 63 / 35%);
+  background: #fff0ee;
+  color: #7b2828;
+}
+
+.revision-effectiveness--unknown {
+  background: #f4f0e8;
+  color: var(--muted);
+}
+
+.revision-effectiveness--unknown-warning {
+  border-color: rgb(166 106 22 / 45%);
+  background: #fff6e6;
+  color: #734708;
+}
+
+.revision-parameters-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.revision-parameters-toggle:hover,
+.revision-parameters-toggle:focus {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.revision-parameters-empty {
+  width: 1px;
+}
+
+.revision-parameters {
+  max-height: 128px;
+  overflow: auto;
+  margin: 0 0 0 44px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fbf8f1;
+  color: var(--text);
+  padding: 10px;
+  font:
+    12px/1.45 "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  white-space: pre-wrap;
+}
+
+.prompt-revision-more,
+.prompt-revision-related {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 4px;
 }
 
 .panel {
@@ -433,6 +625,94 @@ button {
 .form-grid {
   display: grid;
   gap: 10px;
+}
+
+.lineage-controls {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 2px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  padding: 12px 0 0;
+}
+
+.lineage-controls legend {
+  padding: 0 0 6px;
+}
+
+.lineage-controls.is-disabled {
+  opacity: 0.58;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f7f3ec;
+  padding: 4px;
+}
+
+.segment-button {
+  min-height: 30px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+  padding: 5px 8px;
+}
+
+.segment-button:hover,
+.segment-button:focus {
+  color: var(--text);
+  outline: 1px solid var(--border-strong);
+}
+
+.segment-button.is-active {
+  background: var(--raised);
+  color: var(--accent-strong);
+  box-shadow: 0 1px 2px rgb(43 37 29 / 8%);
+}
+
+.segment-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.lineage-select-row,
+.lineage-advanced {
+  display: grid;
+  gap: 6px;
+}
+
+.lineage-preview {
+  min-height: 32px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 2px 0 2px 9px;
+}
+
+.lineage-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.lineage-advanced summary {
+  width: fit-content;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.lineage-advanced[open] summary {
+  margin-bottom: 8px;
 }
 
 .form-row {
@@ -557,6 +837,26 @@ button {
   }
 
   .workspace-shell {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .prompt-revision-list--wide {
+    display: none;
+  }
+
+  .prompt-revision-compact {
+    display: grid;
+  }
+
+  .prompt-revision-row {
+    grid-template-columns: 22px minmax(140px, 1fr) max-content 82px;
+  }
+
+  .prompt-revision-row .revision-preview,
+  .prompt-revision-row .revision-parameters-toggle,
+  .prompt-revision-row .revision-parameters-empty {
     display: none;
   }
 }
