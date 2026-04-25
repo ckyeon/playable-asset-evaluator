@@ -62,7 +62,20 @@ describe("prompt revision read model", () => {
     ).run(brokenId, generationContext.id, "missing-parent", "broken prompt", "broken");
     db.pragma("foreign_keys = ON");
 
-    insertCandidateEvaluation(generationContext.id, root.id, "candidate-root", 64);
+    const rootEvaluationId = insertCandidateEvaluation(generationContext.id, root.id, "candidate-root", 64);
+    const sourceGuidanceId = randomUUID();
+    db.prepare(
+      `INSERT INTO prompt_guidance
+        (id, style_profile_id, evaluation_id, guidance_text, confidence_state)
+       VALUES (?, ?, ?, ?, 'normal')`
+    ).run(sourceGuidanceId, profile.id, rootEvaluationId, "Use a cleaner silhouette and keep the same character.");
+    const sourced = service.createRevision({
+      generationContextId: generationContext.id,
+      parentPromptRevisionId: root.id,
+      sourceGuidanceId,
+      revisionLabel: "sourced",
+      promptText: "sourced prompt"
+    });
     insertCandidateEvaluation(generationContext.id, improved.id, "candidate-improved", 86);
     insertCandidateEvaluation(generationContext.id, flat.id, "candidate-flat", 66);
     insertCandidateEvaluation(generationContext.id, regressed.id, "candidate-regressed", 28);
@@ -88,6 +101,12 @@ describe("prompt revision read model", () => {
       effectiveness: "unknown",
       effectiveness_reason: "parent_no_saved_evaluation"
     });
+    expect(revisions.get(sourced.id)?.sourceGuidance).toEqual(
+      expect.objectContaining({
+        id: sourceGuidanceId,
+        guidance_text: "Use a cleaner silhouette and keep the same character."
+      })
+    );
     expect(revisions.get(brokenId)).toMatchObject({
       effectiveness: "unknown",
       effectiveness_reason: "broken_lineage"
@@ -98,12 +117,15 @@ describe("prompt revision read model", () => {
 
     const exported = new ExportBuilder().buildJson(profile.id) as {
       contexts: Array<{
-        prompt_revisions: Array<{ id: string; effectiveness: string }>;
+        prompt_revisions: Array<{ id: string; effectiveness: string; sourceGuidance: { id: string } | null }>;
         candidates: Array<{ id: string; prompt_revision_id: string | null; prompt_revision: { id: string } | null }>;
       }>;
     };
     expect(exported.contexts[0].prompt_revisions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: improved.id, effectiveness: "improved" })])
+      expect.arrayContaining([
+        expect.objectContaining({ id: improved.id, effectiveness: "improved" }),
+        expect.objectContaining({ id: sourced.id, sourceGuidance: expect.objectContaining({ id: sourceGuidanceId }) })
+      ])
     );
     expect(exported.contexts[0].candidates).toEqual(
       expect.arrayContaining([
@@ -118,6 +140,7 @@ describe("prompt revision read model", () => {
     const markdown = new ExportBuilder().buildMarkdown(profile.id);
     expect(markdown).toContain("### Prompt Revisions");
     expect(markdown).toContain(`- Prompt revision: ${improved.id}`);
+    expect(markdown).toContain(`- Source guidance: ${sourceGuidanceId}`);
   });
 });
 
@@ -126,7 +149,7 @@ function insertCandidateEvaluation(
   promptRevisionId: string,
   candidateId: string,
   fitScore: number
-): void {
+): string {
   const db = getDb();
   const evaluationId = randomUUID();
   db.prepare(
@@ -139,4 +162,5 @@ function insertCandidateEvaluation(
       (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state, rubric_version)
      VALUES (?, ?, 'manual-judgment', ?, 'needs_edit', 'reason', NULL, NULL, 'normal', 'saved', 'v2_generation_context')`
   ).run(evaluationId, candidateId, fitScore);
+  return evaluationId;
 }

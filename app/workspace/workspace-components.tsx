@@ -26,6 +26,7 @@ import type {
   ProfileDetail,
   PromptRevision,
   RevisionUploadMode,
+  SourceGuidanceOption,
   StyleProfile,
   WorkspaceStatus
 } from "./workspace-types";
@@ -364,6 +365,14 @@ export function PromptRevisionStrip({ activeContext, selectedPromptRevisionId, o
             {revision.effectiveness}
           </span>
           <span className="revision-count">{candidateCountLabel(revision.candidate_count)}</span>
+          {revision.sourceGuidance ? (
+            <span className="revision-source" title={revision.sourceGuidance.guidance_text}>
+              <span className="source-pill">source</span>
+              <span className="source-preview">{guidancePreview(revision.sourceGuidance.guidance_text)}</span>
+            </span>
+          ) : (
+            <span className="revision-source-empty" aria-hidden />
+          )}
           <span className="revision-preview">{promptPreview(revision.prompt_text)}</span>
           {hasParameters ? (
             <button
@@ -547,6 +556,10 @@ function revisionOptionLabel(revision: PromptRevision): string {
   return `${revisionTitle(revision)} · ${revision.candidate_count} candidate${revision.candidate_count === 1 ? "" : "s"}`;
 }
 
+function guidanceOptionLabel(guidance: SourceGuidanceOption): string {
+  return `${guidance.decision_label} · ${guidance.fit_score} · ${guidance.confidence_state} · ${guidancePreview(guidance.guidance_text)}`;
+}
+
 function parentSummary(revision: PromptRevision, revisionById: Map<string, PromptRevision>): string {
   if (!revision.parent_prompt_revision_id) {
     return "root";
@@ -567,6 +580,11 @@ function candidateCountLabel(count: number): string {
 function promptPreview(prompt: string): string {
   const normalized = prompt.replace(/\s+/g, " ").trim();
   return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+}
+
+function guidancePreview(guidance: string): string {
+  const normalized = guidance.replace(/\s+/g, " ").trim();
+  return normalized.length > 56 ? `${normalized.slice(0, 53)}...` : normalized;
 }
 
 function formatParameters(parametersJson: string | null): string {
@@ -784,6 +802,8 @@ interface CandidatePanelProps {
   revisionNote: string;
   negativePrompt: string;
   parametersJson: string;
+  sourceGuidanceOptions: SourceGuidanceOption[];
+  sourceGuidanceId: string | null;
   busy: string | null;
   onPromptTextChange: (value: string) => void;
   onPromptMissingChange: (value: boolean) => void;
@@ -796,6 +816,7 @@ interface CandidatePanelProps {
   onRevisionNoteChange: (value: string) => void;
   onNegativePromptChange: (value: string) => void;
   onParametersJsonChange: (value: string) => void;
+  onSourceGuidanceIdChange: (value: string | null) => void;
   onUploadCandidate: (file: File) => void;
   onDeleteCurrentCandidate: () => void;
 }
@@ -816,6 +837,8 @@ export function CandidatePanel({
   revisionNote,
   negativePrompt,
   parametersJson,
+  sourceGuidanceOptions,
+  sourceGuidanceId,
   busy,
   onPromptTextChange,
   onPromptMissingChange,
@@ -828,6 +851,7 @@ export function CandidatePanel({
   onRevisionNoteChange,
   onNegativePromptChange,
   onParametersJsonChange,
+  onSourceGuidanceIdChange,
   onUploadCandidate,
   onDeleteCurrentCandidate
 }: CandidatePanelProps) {
@@ -1019,6 +1043,21 @@ export function CandidatePanel({
                   aria-label="Negative prompt"
                 />
               </div>
+              <label className="lineage-select-row">
+                <span className="field-label">Source guidance</span>
+                <select
+                  className="select"
+                  value={sourceGuidanceId || ""}
+                  onChange={(event) => onSourceGuidanceIdChange(event.target.value || null)}
+                >
+                  <option value="">No source guidance</option>
+                  {sourceGuidanceOptions.map((guidance) => (
+                    <option value={guidance.id} key={guidance.id}>
+                      {guidanceOptionLabel(guidance)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <textarea
                 className="textarea compact-textarea"
                 value={revisionNote}

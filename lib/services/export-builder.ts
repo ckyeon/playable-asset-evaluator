@@ -116,6 +116,11 @@ export class ExportBuilder {
         lines.push(
           `- ${revision.id}${revision.revision_label ? ` (${revision.revision_label})` : ""}: ${revision.effectiveness} (${revision.effectiveness_reason})`,
           `  - Parent: ${revision.parent_prompt_revision_id || "(root)"}`,
+          `  - Source guidance: ${
+            revision.sourceGuidance
+              ? `${revision.sourceGuidance.id} - ${promptPreview(revision.sourceGuidance.guidance_text)}`
+              : "(none)"
+          }`,
           `  - Candidates: ${revision.candidate_count}`,
           `  - Prompt: ${promptPreview(revision.prompt_text)}`
         );

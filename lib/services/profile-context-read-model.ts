@@ -24,6 +24,7 @@ export type PromptRevisionEffectivenessReason =
   | "broken_lineage";
 
 export interface PromptRevisionReadModel extends PromptRevision {
+  sourceGuidance: PromptGuidance | null;
   candidate_ids: string[];
   candidate_count: number;
   effectiveness: PromptRevisionEffectiveness;
@@ -130,11 +131,15 @@ export function loadProfileContextReadModel(styleProfileId: string): ProfileCont
   const evaluationsByCandidate = groupBy(evaluations, (evaluation) => evaluation.candidate_image_id);
   const criteriaByEvaluation = groupBy(criteria, (criterion) => criterion.evaluation_id);
   const guidanceByEvaluation = groupBy(guidance, (item) => item.evaluation_id || "");
+  const guidanceById = new Map(guidance.map((item) => [item.id, item]));
   const candidateIdsByRevision = groupCandidateIdsByRevision(candidates);
   const scoreByRevision = bestSavedScoreByRevision(candidates, evaluations);
   const revisionModelsById = new Map<string, PromptRevisionReadModel>();
   for (const revision of promptRevisions) {
-    revisionModelsById.set(revision.id, toRevisionReadModel(revision, promptRevisions, candidateIdsByRevision, scoreByRevision));
+    revisionModelsById.set(
+      revision.id,
+      toRevisionReadModel(revision, promptRevisions, guidanceById, candidateIdsByRevision, scoreByRevision)
+    );
   }
 
   return {
@@ -219,6 +224,7 @@ function bestSavedScoreByRevision(candidates: CandidateImage[], evaluations: Eva
 function toRevisionReadModel(
   revision: PromptRevision,
   allRevisions: PromptRevision[],
+  guidanceById: Map<string, PromptGuidance>,
   candidateIdsByRevision: Map<string, string[]>,
   scoreByRevision: Map<string, number>
 ): PromptRevisionReadModel {
@@ -226,6 +232,7 @@ function toRevisionReadModel(
   const candidateIds = candidateIdsByRevision.get(revision.id) || [];
   return {
     ...revision,
+    sourceGuidance: revision.source_guidance_id ? guidanceById.get(revision.source_guidance_id) || null : null,
     candidate_ids: candidateIds,
     candidate_count: candidateIds.length,
     effectiveness: effectiveness.effectiveness,

@@ -79,6 +79,7 @@ export interface PromptRevision {
   generation_context_id: string;
   parent_prompt_revision_id: string | null;
   source_guidance_id: string | null;
+  sourceGuidance: PromptGuidance | null;
   revision_label: string | null;
   revision_note: string | null;
   prompt_text: string;
@@ -107,7 +108,28 @@ export interface Evaluation {
   confidence_state: ConfidenceState;
   evaluation_state: "draft" | "saved" | "failed";
   criteria?: Criterion[];
-  prompt_guidance?: Array<{ guidance_text: string }>;
+  prompt_guidance?: PromptGuidance[];
+}
+
+export interface PromptGuidance {
+  id: string;
+  style_profile_id: string;
+  evaluation_id: string | null;
+  guidance_text: string;
+  confidence_state: ConfidenceState;
+  copied_at: string | null;
+  created_at: string;
+}
+
+export interface SourceGuidanceOption {
+  id: string;
+  evaluation_id: string;
+  candidate_id: string;
+  guidance_text: string;
+  confidence_state: ConfidenceState;
+  created_at: string;
+  decision_label: DecisionLabel;
+  fit_score: number;
 }
 
 export interface ProfileDetail {

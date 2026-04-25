@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { GET as getProfileDetail } from "@/app/api/style-profiles/[id]/route";
 import { GET as getProfileHistory } from "@/app/api/style-profiles/[id]/history/route";
@@ -188,6 +189,74 @@ describe("generation context API routes", () => {
     });
   });
 
+  it("links uploaded prompt revisions to saved source guidance", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const profile = db.prepare("SELECT id FROM style_profiles LIMIT 1").get() as { id: string };
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const guidanceId = insertPromptGuidance({
+      profileId: profile.id,
+      generationContextId: generationContext.id,
+      candidateId: "source-guidance-candidate",
+      guidanceText: "Keep the same character identity and simplify the pose silhouette.",
+      evaluationState: "saved"
+    });
+    const formData = new FormData();
+    formData.set("file", await createImageFile("candidate.png"));
+    formData.set("promptText", "child revision from saved guidance");
+    formData.set("sourceGuidanceId", guidanceId);
+
+    const uploadResponse = await postGenerationContextCandidate(
+      new Request(`http://test.local/api/generation-contexts/${generationContext.id}/candidates`, {
+        method: "POST",
+        body: formData
+      }),
+      params(generationContext.id)
+    );
+    const uploadData = (await uploadResponse.json()) as {
+      candidate: { id: string; prompt_revision_id: string | null };
+    };
+
+    expect(uploadResponse.status).toBe(201);
+    expect(
+      db.prepare("SELECT source_guidance_id FROM prompt_revisions WHERE id = ?").get(uploadData.candidate.prompt_revision_id)
+    ).toEqual({ source_guidance_id: guidanceId });
+
+    const detailResponse = await getProfileDetail(new Request(`http://test.local/api/style-profiles/${profile.id}`), params(profile.id));
+    const detailData = (await detailResponse.json()) as {
+      generationContexts: Array<{
+        id: string;
+        promptRevisions: Array<{ id: string; sourceGuidance: { id: string; guidance_text: string } | null }>;
+      }>;
+    };
+    const revision = detailData.generationContexts
+      .find((context) => context.id === generationContext.id)
+      ?.promptRevisions.find((item) => item.id === uploadData.candidate.prompt_revision_id);
+    expect(revision?.sourceGuidance).toEqual(
+      expect.objectContaining({
+        id: guidanceId,
+        guidance_text: "Keep the same character identity and simplify the pose silhouette."
+      })
+    );
+
+    const historyResponse = await getProfileHistory(
+      new Request(`http://test.local/api/style-profiles/${profile.id}/history`),
+      params(profile.id)
+    );
+    const historyData = (await historyResponse.json()) as {
+      history: Array<{ evaluations: Array<{ prompt_guidance?: Array<{ id: string; evaluation_id: string; created_at: string }> }> }>;
+    };
+    expect(historyData.history.flatMap((item) => item.evaluations.flatMap((evaluation) => evaluation.prompt_guidance || []))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: guidanceId,
+          evaluation_id: expect.any(String),
+          created_at: expect.any(String)
+        })
+      ])
+    );
+  });
+
   it("rejects stale or cross-context prompt revisions before storing candidates", async () => {
     useTempDataDir();
     const db = getDb();
@@ -217,6 +286,42 @@ describe("generation context API routes", () => {
     expect(uploadResponse.status).toBe(400);
     expect(errorData.error).toMatch(/Prompt revision does not belong/);
     expect(db.prepare("SELECT COUNT(*) AS count FROM candidate_images").get()).toEqual({ count: 0 });
+  });
+
+  it("rejects cross-context source guidance before storing candidates", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const profile = db.prepare("SELECT id FROM style_profiles LIMIT 1").get() as { id: string };
+    const firstContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const secondContext = new GenerationContextService().createContext({
+      styleProfileId: profile.id,
+      name: "Second context"
+    });
+    const guidanceId = insertPromptGuidance({
+      profileId: profile.id,
+      generationContextId: firstContext.id,
+      candidateId: "source-guidance-cross-context",
+      guidanceText: "Use a source from the first context only.",
+      evaluationState: "saved"
+    });
+    const beforeCount = db.prepare("SELECT COUNT(*) AS count FROM candidate_images").get() as { count: number };
+    const formData = new FormData();
+    formData.set("file", await createImageFile("candidate.png"));
+    formData.set("promptText", "new prompt in second context");
+    formData.set("sourceGuidanceId", guidanceId);
+
+    const uploadResponse = await postGenerationContextCandidate(
+      new Request(`http://test.local/api/generation-contexts/${secondContext.id}/candidates`, {
+        method: "POST",
+        body: formData
+      }),
+      params(secondContext.id)
+    );
+    const errorData = (await uploadResponse.json()) as { error: string };
+
+    expect(uploadResponse.status).toBe(400);
+    expect(errorData.error).toMatch(/Source guidance does not belong to this generation context/);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM candidate_images").get()).toEqual(beforeCount);
   });
 
   it("stores prompt-missing candidate uploads without prompt revisions", async () => {
@@ -259,3 +364,31 @@ describe("generation context API routes", () => {
     expect(detailData.candidates).toEqual(expect.arrayContaining([expect.objectContaining({ promptRevision: null })]));
   });
 });
+
+function insertPromptGuidance(input: {
+  profileId: string;
+  generationContextId: string;
+  candidateId: string;
+  guidanceText: string;
+  evaluationState: "draft" | "saved" | "failed";
+}): string {
+  const db = getDb();
+  const evaluationId = randomUUID();
+  const guidanceId = randomUUID();
+  db.prepare(
+    `INSERT INTO candidate_images
+      (id, generation_context_id, file_path, prompt_text, prompt_missing, source_integrity)
+     VALUES (?, ?, ?, 'source prompt', 0, 'complete')`
+  ).run(input.candidateId, input.generationContextId, `assets/${input.candidateId}.png`);
+  db.prepare(
+    `INSERT INTO evaluations
+      (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state, rubric_version)
+     VALUES (?, ?, 'manual-judgment', 74, 'needs_edit', 'reason', NULL, NULL, 'normal', ?, 'v2_generation_context')`
+  ).run(evaluationId, input.candidateId, input.evaluationState);
+  db.prepare(
+    `INSERT INTO prompt_guidance
+      (id, style_profile_id, evaluation_id, guidance_text, confidence_state)
+     VALUES (?, ?, ?, ?, 'normal')`
+  ).run(guidanceId, input.profileId, evaluationId, input.guidanceText);
+  return guidanceId;
+}

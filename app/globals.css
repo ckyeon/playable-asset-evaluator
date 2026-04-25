@@ -365,7 +365,7 @@ button {
 
 .prompt-revision-row {
   display: grid;
-  grid-template-columns: 34px minmax(130px, 0.9fr) max-content 96px minmax(180px, 1.4fr) max-content;
+  grid-template-columns: 34px minmax(130px, 0.85fr) max-content 96px minmax(120px, 0.8fr) minmax(180px, 1.35fr) max-content;
   align-items: center;
   gap: 10px;
   min-height: 52px;
@@ -407,6 +407,8 @@ button {
 
 .revision-title strong,
 .revision-title span,
+.revision-source,
+.source-preview,
 .revision-preview,
 .revision-count {
   overflow: hidden;
@@ -421,10 +423,39 @@ button {
 
 .revision-title span,
 .revision-count,
+.revision-source,
 .revision-preview {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.3;
+}
+
+.revision-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.source-pill {
+  flex: 0 0 auto;
+  border: 1px solid rgb(47 111 115 / 28%);
+  border-radius: 999px;
+  background: #edf6f6;
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.2;
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+
+.source-preview {
+  min-width: 0;
+}
+
+.revision-source-empty {
+  width: 1px;
 }
 
 .revision-effectiveness {
@@ -855,6 +886,8 @@ button {
   }
 
   .prompt-revision-row .revision-preview,
+  .prompt-revision-row .revision-source,
+  .prompt-revision-row .revision-source-empty,
   .prompt-revision-row .revision-parameters-toggle,
   .prompt-revision-row .revision-parameters-empty {
     display: none;

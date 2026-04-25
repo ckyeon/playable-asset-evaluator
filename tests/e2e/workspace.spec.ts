@@ -87,6 +87,9 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await expect(page.getByText("Draft evaluation saved.")).toBeVisible();
   await expect(page.getByText("profile_fit · 78")).toBeVisible();
   await expect(page.getByText("source_asset_match · 72")).toBeVisible();
+  await page.getByRole("button", { name: "New child" }).click();
+  await page.getByText("Revision metadata").click();
+  await expect(page.getByLabel("Source guidance").locator("option")).toHaveCount(1);
 
   await page.getByLabel("Human reason").fill("Good character continuity, but the pose needs cleaner production edges.");
   await expect(page.getByLabel("Next prompt guidance")).toHaveValue(/separate the body from the background/);
@@ -98,8 +101,13 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
 
   await revisionRow.click();
   await page.getByRole("button", { name: "New child" }).click();
+  if (!(await page.getByLabel("Source guidance").isVisible())) {
+    await page.getByText("Revision metadata").click();
+  }
+  await expect(page.getByLabel("Source guidance").locator("option")).toHaveCount(2);
+  await page.getByLabel("Source guidance").selectOption({ index: 1 });
+
   await page.getByLabel("Candidate prompt").fill("Nervous pose child revision with cleaner silhouette.");
-  await page.getByText("Revision metadata").click();
   await page.getByLabel("Revision label").fill("child e2e");
   const childUploadResponse = page.waitForResponse(
     (response) =>
@@ -110,7 +118,7 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
   await childUploadResponse;
   const childRevisionRow = page.getByRole("option", {
-    name: /child e2e.*unknown.*1 candidate.*Nervous pose child revision with cleaner silhouette/i
+    name: /child e2e.*unknown.*1 candidate.*source.*Keep the same character.*Nervous pose child revision with cleaner silhouette/i
   });
   await expect(childRevisionRow).toBeVisible();
 

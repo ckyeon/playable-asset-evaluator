@@ -18,6 +18,7 @@ import type {
   HistoryItem,
   ProfileDetail,
   RevisionUploadMode,
+  SourceGuidanceOption,
   StyleProfile,
   WorkspaceStatus
 } from "./workspace-types";
@@ -53,6 +54,7 @@ export function WorkspaceClient() {
   const [revisionNote, setRevisionNote] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
   const [parametersJson, setParametersJson] = useState("");
+  const [sourceGuidanceId, setSourceGuidanceId] = useState<string | null>(null);
   const [decisionLabel, setDecisionLabel] = useState<DecisionLabel>("needs_edit");
   const [humanReason, setHumanReason] = useState("");
   const [guidanceText, setGuidanceText] = useState("");
@@ -80,6 +82,36 @@ export function WorkspaceClient() {
     selectedPromptRevisionId && activePromptRevisionIds.has(selectedPromptRevisionId)
       ? selectedPromptRevisionId
       : activePromptRevisions[0]?.id || null;
+  const activeSourceGuidanceOptions = useMemo<SourceGuidanceOption[]>(() => {
+    if (!activeContext) {
+      return [];
+    }
+    return history
+      .filter((item) => item.generationContext.id === activeContext.id)
+      .flatMap((item) =>
+        item.evaluations
+          .filter((evaluation) => evaluation.evaluation_state === "saved")
+          .flatMap((evaluation) =>
+            (evaluation.prompt_guidance || [])
+              .filter((guidance) => guidance.id && guidance.evaluation_id)
+              .map((guidance) => ({
+                id: guidance.id,
+                evaluation_id: guidance.evaluation_id as string,
+                candidate_id: item.candidate.id,
+                guidance_text: guidance.guidance_text,
+                confidence_state: guidance.confidence_state,
+                created_at: guidance.created_at,
+                decision_label: evaluation.decision_label,
+                fit_score: evaluation.fit_score
+              }))
+          )
+      )
+      .sort((left, right) => right.created_at.localeCompare(left.created_at) || left.id.localeCompare(right.id));
+  }, [activeContext, history]);
+  const activeSourceGuidanceIds = useMemo(
+    () => new Set(activeSourceGuidanceOptions.map((guidance) => guidance.id)),
+    [activeSourceGuidanceOptions]
+  );
 
   const loadProfiles = useCallback(async () => {
     const response = await fetch("/api/style-profiles", { cache: "no-store" });
@@ -149,6 +181,10 @@ export function WorkspaceClient() {
       current && activePromptRevisionIds.has(current) ? current : defaultRevisionTargetId
     );
   }, [activeContext, activePromptRevisionIds, activePromptRevisions.length, defaultRevisionTargetId, revisionUploadMode]);
+
+  useEffect(() => {
+    setSourceGuidanceId((current) => (current && activeSourceGuidanceIds.has(current) ? current : null));
+  }, [activeSourceGuidanceIds]);
 
   useEffect(() => {
     if (!activeContext) {
@@ -225,6 +261,7 @@ export function WorkspaceClient() {
     setRevisionNote("");
     setNegativePrompt("");
     setParametersJson("");
+    setSourceGuidanceId(null);
   }
 
   function handlePromptMissingChange(value: boolean) {
@@ -421,6 +458,9 @@ export function WorkspaceClient() {
         appendIfPresent(formData, "revisionLabel", revisionLabel);
         appendIfPresent(formData, "revisionNote", revisionNote);
         appendIfPresent(formData, "negativePrompt", negativePrompt);
+        if (sourceGuidanceId) {
+          formData.append("sourceGuidanceId", sourceGuidanceId);
+        }
         if (normalizedParametersJson) {
           formData.append("parametersJson", normalizedParametersJson);
         }
@@ -441,6 +481,7 @@ export function WorkspaceClient() {
       setRevisionNote("");
       setNegativePrompt("");
       setParametersJson("");
+      setSourceGuidanceId(null);
       setStatus({ kind: "ok", text: "Candidate image saved." });
     } finally {
       setBusy(null);
@@ -678,6 +719,8 @@ export function WorkspaceClient() {
                 revisionNote={revisionNote}
                 negativePrompt={negativePrompt}
                 parametersJson={parametersJson}
+                sourceGuidanceOptions={activeSourceGuidanceOptions}
+                sourceGuidanceId={sourceGuidanceId}
                 busy={busy}
                 onPromptTextChange={setPromptText}
                 onPromptMissingChange={handlePromptMissingChange}
@@ -690,6 +733,7 @@ export function WorkspaceClient() {
                 onRevisionNoteChange={setRevisionNote}
                 onNegativePromptChange={setNegativePrompt}
                 onParametersJsonChange={setParametersJson}
+                onSourceGuidanceIdChange={setSourceGuidanceId}
                 onUploadCandidate={(file) =>
                   uploadCandidate(file).catch((error) =>
                     setStatus({ kind: "error", text: error instanceof Error ? error.message : "Upload failed." })
