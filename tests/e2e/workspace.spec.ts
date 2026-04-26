@@ -98,6 +98,15 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await expect(page.getByText("Judgment saved to creative memory.")).toBeVisible();
   await expect(page.getByText("1 saved judgments")).toBeVisible();
   await expect(page.getByRole("button", { name: new RegExp(`${contextName}.*needs_edit`, "i") })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create next revision" })).toBeVisible();
+  await page.getByRole("button", { name: "Create next revision" }).click();
+  await expect(page.getByText("Next prompt revision created.")).toBeVisible();
+  await expect(
+    page.getByRole("option", {
+      name: /next revision.*unknown.*0 candidates.*source.*Keep the same character.*Keep the same character/i
+    })
+  ).toBeVisible();
+  await expect(page.getByLabel("Candidate prompt")).toHaveValue(/separate the body from the background/);
 
   await revisionRow.click();
   await page.getByRole("button", { name: "New child" }).click();
@@ -166,4 +175,15 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
   await expect(page.getByText("Parameters JSON must be a valid JSON object.")).toBeVisible();
   await expect(page.getByTestId("prompt-revision-row")).toHaveCount(rowCountBeforeInvalidParameters);
+
+  await page.getByRole("button", { name: new RegExp(`${contextName}.*needs_edit`, "i") }).click();
+  await expect(page.getByLabel("Next prompt guidance")).toHaveValue(/separate the body from the background/);
+  await page.getByLabel("Next prompt guidance").fill("");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Judgment saved to creative memory.")).toBeVisible();
+  await page.getByRole("button", { name: "New child" }).click();
+  if (!(await page.getByLabel("Source guidance").isVisible())) {
+    await page.getByText("Revision metadata").click();
+  }
+  await expect(page.getByLabel("Source guidance").locator("option")).toHaveCount(1);
 });

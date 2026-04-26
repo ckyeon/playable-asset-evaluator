@@ -17,6 +17,7 @@ import type {
   Draft,
   HistoryItem,
   ProfileDetail,
+  PromptGuidance,
   RevisionUploadMode,
   SourceGuidanceOption,
   StyleProfile,
@@ -58,6 +59,7 @@ export function WorkspaceClient() {
   const [decisionLabel, setDecisionLabel] = useState<DecisionLabel>("needs_edit");
   const [humanReason, setHumanReason] = useState("");
   const [guidanceText, setGuidanceText] = useState("");
+  const [lastSavedGuidance, setLastSavedGuidance] = useState<PromptGuidance | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<WorkspaceStatus | null>(null);
 
@@ -217,6 +219,21 @@ export function WorkspaceClient() {
     () => history.flatMap((item) => item.evaluations.filter((evaluation) => evaluation.evaluation_state === "saved")),
     [history]
   );
+  const savedGuidanceForCurrentCandidate = useMemo(() => {
+    if (!currentCandidate) {
+      return null;
+    }
+    const savedEvaluation = history
+      .find((item) => item.candidate.id === currentCandidate.id)
+      ?.evaluations.find((evaluation) => evaluation.evaluation_state === "saved");
+    return savedEvaluation?.prompt_guidance?.[0] || null;
+  }, [currentCandidate, history]);
+  const activeSavedGuidance =
+    lastSavedGuidance && lastSavedGuidance.guidance_text === guidanceText.trim()
+      ? lastSavedGuidance
+      : savedGuidanceForCurrentCandidate?.guidance_text === guidanceText.trim()
+        ? savedGuidanceForCurrentCandidate
+        : null;
 
   function selectCandidate(candidate: Candidate) {
     setCurrentCandidate(candidate);
@@ -229,9 +246,10 @@ export function WorkspaceClient() {
     setPromptMissing(candidate.prompt_missing === 1 || !candidate.prompt_text);
     setRecoveryNote(candidate.recovery_note || "");
     setDraft(null);
-    const latest = history
-      .find((item) => item.candidate.id === candidate.id)
-      ?.evaluations.find((evaluation) => evaluation.evaluation_state !== "failed");
+    const historyItem = history.find((item) => item.candidate.id === candidate.id);
+    const latest = historyItem?.evaluations.find((evaluation) => evaluation.evaluation_state !== "failed");
+    const savedGuidance = historyItem?.evaluations.find((evaluation) => evaluation.evaluation_state === "saved")?.prompt_guidance?.[0] || null;
+    setLastSavedGuidance(savedGuidance);
     if (latest) {
       setDecisionLabel(latest.decision_label);
       setHumanReason(latest.human_reason || "");
@@ -507,6 +525,7 @@ export function WorkspaceClient() {
         throw new Error(data.error);
       }
       setDraft(data.draft);
+      setLastSavedGuidance(null);
       setDecisionLabel(data.draft.evaluation.decision_label);
       setGuidanceText(data.draft.next_prompt_guidance);
       setStatus({
@@ -546,6 +565,7 @@ export function WorkspaceClient() {
       if (!response.ok) {
         throw new Error(data.error);
       }
+      setLastSavedGuidance(data.guidance || null);
       setStatus({ kind: "ok", text: "Judgment saved to creative memory." });
       if (selectedProfileId) {
         await loadDetail(selectedProfileId);
@@ -563,6 +583,44 @@ export function WorkspaceClient() {
     }
     await navigator.clipboard.writeText(guidanceText);
     setStatus({ kind: "ok", text: "Prompt guidance copied." });
+  }
+
+  async function createNextRevision() {
+    if (!selectedProfileId || !activeContext || !activeSavedGuidance) {
+      return;
+    }
+
+    setBusy("create-revision");
+    try {
+      const response = await fetch(`/api/generation-contexts/${activeContext.id}/prompt-revisions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          promptText: activeSavedGuidance.guidance_text,
+          parentPromptRevisionId: currentCandidate?.prompt_revision_id || null,
+          sourceGuidanceId: activeSavedGuidance.id,
+          revisionLabel: "next revision",
+          revisionNote: "Created from saved judgment guidance."
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error);
+      }
+
+      await loadDetail(selectedProfileId, activeContext.id);
+      setSelectedPromptRevisionId(data.promptRevision.id);
+      setAttachPromptRevisionId(data.promptRevision.id);
+      setParentPromptRevisionId(data.promptRevision.id);
+      setPromptText(data.promptRevision.prompt_text);
+      setPromptMissing(false);
+      setRevisionUploadMode("attach_existing");
+      setStatus({ kind: "ok", text: "Next prompt revision created." });
+    } catch (error) {
+      setStatus({ kind: "error", text: error instanceof Error ? error.message : "Failed to create prompt revision." });
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function deleteReferenceAsset(referenceAssetId: string) {
@@ -608,6 +666,7 @@ export function WorkspaceClient() {
       setDecisionLabel("needs_edit");
       setHumanReason("");
       setGuidanceText("");
+      setLastSavedGuidance(null);
       await loadDetail(selectedProfileId);
       setStatus({ kind: "ok", text: "Candidate image removed." });
     } catch (error) {
@@ -649,6 +708,7 @@ export function WorkspaceClient() {
             resetRevisionAuthoring(null);
             setCurrentCandidate(null);
             setDraft(null);
+            setLastSavedGuidance(null);
           }}
           onSelectContext={(contextId) => {
             setSelectedContextId(contextId);
@@ -656,6 +716,7 @@ export function WorkspaceClient() {
             resetRevisionAuthoring(null);
             setCurrentCandidate(null);
             setDraft(null);
+            setLastSavedGuidance(null);
           }}
           onNewProfileNameChange={setNewProfileName}
           onNewContextNameChange={setNewContextName}
@@ -758,12 +819,14 @@ export function WorkspaceClient() {
           decisionLabel={decisionLabel}
           humanReason={humanReason}
           guidanceText={guidanceText}
+          activeSavedGuidance={activeSavedGuidance}
           onEvaluateCandidate={evaluateCandidate}
           onDecisionLabelChange={setDecisionLabel}
           onHumanReasonChange={setHumanReason}
           onGuidanceTextChange={setGuidanceText}
           onCopyGuidance={copyGuidance}
           onSaveJudgment={saveJudgment}
+          onCreateNextRevision={createNextRevision}
         />
       </div>
     </main>

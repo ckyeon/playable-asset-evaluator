@@ -110,6 +110,58 @@ Priority: P2.
 
 Depends on / blocked by: Prompt Revision Chain implementation and enough saved revision outcomes.
 
+### Persist image hashes at upload/import time
+
+Status: Deferred by `/plan-eng-review`. Export-time hashing is enough for the first agent-ready dataset contract.
+
+What: Store image `sha256` and `byte_size` when assets are uploaded or imported.
+
+Why: Large agent exports should not need to re-read every source and candidate image to prove file identity.
+
+Pros:
+- Makes export faster for large workspaces.
+- Gives external agents stable image provenance without depending only on local file paths.
+- Creates a safer foundation for portable datasets.
+
+Cons:
+- Requires a DB migration and backfill for existing local files.
+- Touches upload, import, and migration paths.
+- Adds storage fields before export usage proves the scale problem is real.
+
+Context: The agent-ready single candidate review chose `sha256` and `byte_size` computed lazily during export, with per-export path caching. Persisted hashes become worthwhile once datasets grow beyond a few hundred images or exports become automated.
+
+Effort: M.
+
+Priority: P2.
+
+Depends on: Agent-ready export contract.
+
+### Track human-edited prompt guidance
+
+Status: Deferred by `/plan-eng-review`. The first agent-ready loop treats saved guidance as the final canonical guidance text.
+
+What: Track whether saved prompt guidance was edited by a human before saving.
+
+Why: Future agent training and evaluation may need to distinguish raw AI suggestions from human-corrected guidance.
+
+Pros:
+- Adds a useful trust signal to agent dataset items.
+- Makes AI draft quality measurable against human edits.
+- Improves provenance for future prompt-revision analysis.
+
+Cons:
+- Requires schema, API, UI, and migration work.
+- Existing guidance records need a sensible default.
+- Can distract from proving the first single-candidate dataset loop.
+
+Context: The current plan saves the final guidance text and links it to child prompt revisions. That is enough for v1. A later quality layer can add `human_modified` or equivalent metadata once saved guidance is being used for agent evaluation.
+
+Effort: M.
+
+Priority: P2.
+
+Depends on: Agent-ready export contract and direct create-next-revision flow.
+
 ### Build AI Character Chat character eval baseline
 
 Status: Done. The ready dataset, copied eval images, integrity test, and `eval:import` dogfood path exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.

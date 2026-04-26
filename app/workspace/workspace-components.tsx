@@ -24,6 +24,7 @@ import type {
   GenerationContext,
   HistoryItem,
   ProfileDetail,
+  PromptGuidance,
   PromptRevision,
   RevisionUploadMode,
   SourceGuidanceOption,
@@ -1143,12 +1144,14 @@ interface JudgmentPanelProps {
   decisionLabel: DecisionLabel;
   humanReason: string;
   guidanceText: string;
+  activeSavedGuidance: PromptGuidance | null;
   onEvaluateCandidate: () => void;
   onDecisionLabelChange: (value: DecisionLabel) => void;
   onHumanReasonChange: (value: string) => void;
   onGuidanceTextChange: (value: string) => void;
   onCopyGuidance: () => void;
   onSaveJudgment: () => void;
+  onCreateNextRevision: () => void;
 }
 
 export function JudgmentPanel({
@@ -1162,12 +1165,14 @@ export function JudgmentPanel({
   decisionLabel,
   humanReason,
   guidanceText,
+  activeSavedGuidance,
   onEvaluateCandidate,
   onDecisionLabelChange,
   onHumanReasonChange,
   onGuidanceTextChange,
   onCopyGuidance,
-  onSaveJudgment
+  onSaveJudgment,
+  onCreateNextRevision
 }: JudgmentPanelProps) {
   return (
     <aside className="inspector" aria-label="Judgment inspector">
@@ -1256,6 +1261,11 @@ export function JudgmentPanel({
             <button className="button secondary" onClick={onCopyGuidance} disabled={!guidanceText.trim()}>
               <Copy size={16} aria-hidden /> Copy
             </button>
+            {activeSavedGuidance ? (
+              <button className="button secondary" onClick={onCreateNextRevision} disabled={busy === "create-revision"}>
+                <Sparkles size={16} aria-hidden /> Create next revision
+              </button>
+            ) : null}
             <button className="button" onClick={onSaveJudgment} disabled={!currentCandidate || busy === "save"}>
               <Save size={16} aria-hidden /> Save
             </button>

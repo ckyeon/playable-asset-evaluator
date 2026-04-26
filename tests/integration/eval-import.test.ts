@@ -352,9 +352,102 @@ describe("eval manifest import", () => {
       .get(importedContext?.id) as { count: number };
     expect(evaluationCount.count).toBe(10);
 
-    const exported = new ExportBuilder().buildJson(importedProfile!.id) as { contexts: Array<{ candidates: unknown[] }> };
+    const firstCandidate = db
+      .prepare("SELECT id FROM candidate_images WHERE generation_context_id = ? ORDER BY created_at DESC LIMIT 1")
+      .get(importedContext?.id) as { id: string };
+    db.prepare(
+      `INSERT INTO evaluations
+        (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state, rubric_version)
+       VALUES ('draft-leak-check', ?, 'mock-evaluator-v1', 50, 'needs_edit', NULL, 'draft only', NULL, 'normal', 'draft', 'v2_generation_context')`
+    ).run(firstCandidate.id);
+    db.prepare(
+      `INSERT INTO evaluations
+        (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state, rubric_version)
+       VALUES ('failed-leak-check', ?, 'mock-evaluator-v1', 0, 'reject', NULL, 'failed only', NULL, 'low_confidence', 'failed', 'v2_generation_context')`
+    ).run(firstCandidate.id);
+
+    const exported = new ExportBuilder().buildJson(importedProfile!.id) as {
+      agent_dataset_items: Array<{
+        item_type: string;
+        generation_context: { id: string; name: string; goal: string | null; asset_focus: string; source_prompt: string | null };
+        source_assets: Array<{ id: string; missing_file: boolean; sha256?: string; byte_size?: number }>;
+        prompt_revision: { id: string } | null;
+        candidate: {
+          id: string;
+          file_path: string;
+          missing_file: boolean;
+          sha256?: string;
+          byte_size?: number;
+          prompt_missing: boolean;
+          source_integrity: string;
+        };
+        evaluation: {
+          id: string;
+          decision_label: string;
+          human_reason: string | null;
+          criteria: unknown[];
+          model_name: string;
+          rubric_version: string;
+        };
+        next_prompt_guidance: unknown | null;
+        provenance: { workspace_version: string; missing_file: boolean; created_at: string };
+      }>;
+      contexts: Array<{ candidates: unknown[] }>;
+    };
     expect(exported.contexts).toHaveLength(1);
     expect(exported.contexts[0].candidates).toHaveLength(10);
+    expect(exported.agent_dataset_items).toHaveLength(10);
+    expect(exported.agent_dataset_items.map((item) => item.item_type)).toEqual(
+      Array.from({ length: 10 }, () => "single_candidate_evaluation")
+    );
+    expect(exported.agent_dataset_items.map((item) => item.evaluation.id)).not.toContain("draft-leak-check");
+    expect(exported.agent_dataset_items.map((item) => item.evaluation.id)).not.toContain("failed-leak-check");
+    for (const item of exported.agent_dataset_items) {
+      expect(item.generation_context).toEqual(
+        expect.objectContaining({
+          id: importedContext?.id,
+          name: "Emotion reaction batch",
+          asset_focus: "character"
+        })
+      );
+      expect(item.source_assets).toHaveLength(8);
+      expect(item.source_assets.every((asset) => !asset.missing_file && asset.sha256 && asset.byte_size)).toBe(true);
+      expect(item.prompt_revision).toEqual(expect.objectContaining({ id: expect.any(String) }));
+      expect(item.candidate).toEqual(
+        expect.objectContaining({
+          id: expect.any(String),
+          missing_file: false,
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          byte_size: expect.any(Number),
+          source_integrity: "complete"
+        })
+      );
+      expect(item.evaluation).toEqual(
+        expect.objectContaining({
+          model_name: "historical-import",
+          rubric_version: "v2_generation_context",
+          human_reason: expect.any(String),
+          criteria: []
+        })
+      );
+      expect(item.next_prompt_guidance).toBeNull();
+      expect(item.provenance).toEqual(
+        expect.objectContaining({
+          workspace_version: "local",
+          missing_file: false,
+          created_at: expect.any(String)
+        })
+      );
+    }
+
+    const missingCandidate = exported.agent_dataset_items[0].candidate;
+    rmSync(assetAbsolutePath(missingCandidate.file_path), { force: true });
+    const exportedWithMissingFile = new ExportBuilder().buildJson(importedProfile!.id) as typeof exported;
+    const missingItem = exportedWithMissingFile.agent_dataset_items.find((item) => item.candidate.id === missingCandidate.id);
+    expect(missingItem?.candidate).toEqual(expect.objectContaining({ missing_file: true }));
+    expect(missingItem?.candidate).not.toHaveProperty("sha256");
+    expect(missingItem?.candidate).not.toHaveProperty("byte_size");
+    expect(missingItem?.provenance.missing_file).toBe(true);
     expect(new ExportBuilder().buildMarkdown(importedProfile!.id)).toContain("Generation Context: Emotion reaction batch");
   });
 

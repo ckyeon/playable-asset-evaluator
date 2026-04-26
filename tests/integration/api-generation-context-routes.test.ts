@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { GET as getProfileDetail } from "@/app/api/style-profiles/[id]/route";
 import { GET as getProfileHistory } from "@/app/api/style-profiles/[id]/history/route";
 import { POST as postGenerationContextCandidate } from "@/app/api/generation-contexts/[id]/candidates/route";
+import { POST as postPromptRevision } from "@/app/api/generation-contexts/[id]/prompt-revisions/route";
 import { getDb } from "@/lib/db/client";
 import { GenerationContextService } from "@/lib/services/generation-context-service";
 import { PromptRevisionService } from "@/lib/services/prompt-revision-service";
@@ -322,6 +323,132 @@ describe("generation context API routes", () => {
     expect(uploadResponse.status).toBe(400);
     expect(errorData.error).toMatch(/Source guidance does not belong to this generation context/);
     expect(db.prepare("SELECT COUNT(*) AS count FROM candidate_images").get()).toEqual(beforeCount);
+  });
+
+  it("creates prompt revisions directly from saved source guidance", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const profile = db.prepare("SELECT id FROM style_profiles LIMIT 1").get() as { id: string };
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const parent = new PromptRevisionService().createRevision({
+      generationContextId: generationContext.id,
+      revisionLabel: "root",
+      promptText: "root prompt"
+    });
+    const guidanceId = insertPromptGuidance({
+      profileId: profile.id,
+      generationContextId: generationContext.id,
+      candidateId: "direct-source-guidance",
+      guidanceText: "Keep the same character and simplify the pose silhouette.",
+      evaluationState: "saved"
+    });
+
+    const response = await postPromptRevision(
+      new Request(`http://test.local/api/generation-contexts/${generationContext.id}/prompt-revisions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          promptText: "Keep the same character and simplify the pose silhouette.",
+          parentPromptRevisionId: parent.id,
+          sourceGuidanceId: guidanceId,
+          revisionLabel: "next revision",
+          revisionNote: "Created from saved judgment guidance.",
+          parametersJson: '{"seed": 7}'
+        })
+      }),
+      params(generationContext.id)
+    );
+    const data = (await response.json()) as { promptRevision: { id: string } };
+
+    expect(response.status).toBe(201);
+    expect(
+      db
+        .prepare(
+          `SELECT parent_prompt_revision_id, source_guidance_id, revision_label, revision_note, prompt_text, parameters_json
+           FROM prompt_revisions
+           WHERE id = ?`
+        )
+        .get(data.promptRevision.id)
+    ).toEqual({
+      parent_prompt_revision_id: parent.id,
+      source_guidance_id: guidanceId,
+      revision_label: "next revision",
+      revision_note: "Created from saved judgment guidance.",
+      prompt_text: "Keep the same character and simplify the pose silhouette.",
+      parameters_json: '{"seed":7}'
+    });
+  });
+
+  it("rejects invalid direct prompt revision requests", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+
+    const invalidParametersResponse = await postPromptRevision(
+      new Request(`http://test.local/api/generation-contexts/${generationContext.id}/prompt-revisions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          promptText: "valid prompt",
+          parametersJson: "[]"
+        })
+      }),
+      params(generationContext.id)
+    );
+    expect(invalidParametersResponse.status).toBe(400);
+    await expect(invalidParametersResponse.json()).resolves.toEqual({
+      error: "Parameters JSON must be a plain object."
+    });
+
+    const missingGuidanceResponse = await postPromptRevision(
+      new Request(`http://test.local/api/generation-contexts/${generationContext.id}/prompt-revisions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          promptText: "valid prompt",
+          sourceGuidanceId: "missing-guidance"
+        })
+      }),
+      params(generationContext.id)
+    );
+    expect(missingGuidanceResponse.status).toBe(400);
+    await expect(missingGuidanceResponse.json()).resolves.toEqual({
+      error: "Source guidance not found."
+    });
+  });
+
+  it("rejects direct prompt revisions from cross-context source guidance", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const profile = db.prepare("SELECT id FROM style_profiles LIMIT 1").get() as { id: string };
+    const firstContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const secondContext = new GenerationContextService().createContext({
+      styleProfileId: profile.id,
+      name: "Second context"
+    });
+    const guidanceId = insertPromptGuidance({
+      profileId: profile.id,
+      generationContextId: firstContext.id,
+      candidateId: "direct-cross-context-guidance",
+      guidanceText: "Use first-context source only.",
+      evaluationState: "saved"
+    });
+
+    const response = await postPromptRevision(
+      new Request(`http://test.local/api/generation-contexts/${secondContext.id}/prompt-revisions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          promptText: "new prompt in second context",
+          sourceGuidanceId: guidanceId
+        })
+      }),
+      params(secondContext.id)
+    );
+    const errorData = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(400);
+    expect(errorData.error).toMatch(/Source guidance does not belong to this generation context/);
   });
 
   it("stores prompt-missing candidate uploads without prompt revisions", async () => {

@@ -85,6 +85,16 @@ export class JudgmentStore {
            LIMIT 1`
         )
         .get(candidate.id) as Evaluation | undefined;
+      const saved = draft
+        ? undefined
+        : (db
+            .prepare(
+              `SELECT * FROM evaluations
+               WHERE candidate_image_id = ? AND evaluation_state = 'saved'
+               ORDER BY created_at DESC
+               LIMIT 1`
+            )
+            .get(candidate.id) as Evaluation | undefined);
 
       if (draft) {
         savedEvaluationId = draft.id;
@@ -93,6 +103,13 @@ export class JudgmentStore {
            SET decision_label = ?, human_reason = ?, confidence_state = ?, evaluation_state = 'saved'
            WHERE id = ?`
         ).run(decisionLabel, humanReason, confidenceState, draft.id);
+      } else if (saved) {
+        savedEvaluationId = saved.id;
+        db.prepare(
+          `UPDATE evaluations
+           SET decision_label = ?, human_reason = ?, confidence_state = ?
+           WHERE id = ?`
+        ).run(decisionLabel, humanReason, confidenceState, saved.id);
       } else {
         db.prepare(
           `INSERT INTO evaluations
@@ -119,9 +136,11 @@ export class JudgmentStore {
           db.prepare(
             `INSERT INTO prompt_guidance
               (id, style_profile_id, evaluation_id, guidance_text, confidence_state)
-             VALUES (?, ?, ?, ?, ?)`
+            VALUES (?, ?, ?, ?, ?)`
           ).run(savedGuidanceId, context.style_profile_id, savedEvaluationId, guidanceText, confidenceState);
         }
+      } else {
+        db.prepare("DELETE FROM prompt_guidance WHERE evaluation_id = ?").run(savedEvaluationId);
       }
 
       db.prepare(
