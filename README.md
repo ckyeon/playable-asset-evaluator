@@ -40,6 +40,22 @@ Import policy:
 - Absolute paths, path traversal, and missing files are rejected before staging.
 - Files are copied before the DB transaction; staged files are cleaned up if commit fails.
 - Candidates with `prompt_missing: true` are imported as `low_confidence`.
+- Imported source and candidate images persist `sha256` and `byte_size` so exports do not need to re-read every
+  image to prove file identity.
+
+## Exports
+
+Style profiles can be exported as JSON or Markdown through the workspace API:
+
+```text
+/api/style-profiles/:id/export.json
+/api/style-profiles/:id/export.md
+```
+
+The JSON export includes `agent_dataset_items` for saved single-candidate evaluations. Source and candidate image
+metadata prefer the persisted `sha256` and `byte_size` values written during upload or import, and fall back to file
+reads only for older rows. If a local file goes missing later, the export marks `missing_file: true` while preserving
+any stored hash and byte size for provenance.
 
 ## Verification
 
@@ -72,4 +88,4 @@ npm run eval:live -- --provider codex
 ## Project Docs
 
 - [DESIGN.md](DESIGN.md) defines the desktop workspace layout, visual tokens, and interaction states.
-- [TODOS.md](TODOS.md) tracks deferred follow-up work such as Prompt Revision Chain and legacy DB compatibility cleanup.
+- [TODOS.md](TODOS.md) tracks deferred follow-up work such as Prompt Revision Chain, hosted batch queues, and future eval dataset gaps.
