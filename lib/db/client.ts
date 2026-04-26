@@ -37,6 +37,7 @@ export function getDb(): Database.Database {
       runGenerationContextMigration(db, dbPath, dbExisted);
       runPromptRevisionMigration(db, dbPath, dbExisted);
       runImageMetadataMigration(db, dbPath, dbExisted);
+      runPromptGuidanceHumanModifiedMigration(db, dbPath, dbExisted);
     }
     db.exec(schema);
     runLegacySessionCleanupMigration(db, dbPath, dbExisted);
@@ -45,6 +46,7 @@ export function getDb(): Database.Database {
     markMigrationApplied(db, PROMPT_REVISION_MIGRATION);
     markMigrationApplied(db, LEGACY_SESSION_RETIREMENT_MIGRATION);
     markMigrationApplied(db, IMAGE_METADATA_MIGRATION);
+    markMigrationApplied(db, PROMPT_GUIDANCE_HUMAN_MODIFIED_MIGRATION);
 
     cachedDb = db;
     cachedDbPath = dbPath;
@@ -67,6 +69,7 @@ const GENERATION_CONTEXT_MIGRATION = "20260423_generation_context";
 const PROMPT_REVISION_MIGRATION = "20260425_prompt_revisions";
 const LEGACY_SESSION_RETIREMENT_MIGRATION = "20260426_retire_evaluation_sessions";
 const IMAGE_METADATA_MIGRATION = "20260426_persist_image_metadata";
+const PROMPT_GUIDANCE_HUMAN_MODIFIED_MIGRATION = "20260426_track_human_modified_guidance";
 const RETIRED_LEGACY_SESSION_SCHEMA_MESSAGE =
   "This Asset Evaluator database uses the retired evaluation_sessions schema. Upgrade it with an Asset Evaluator version from before 2026-04-26, or import the data into a fresh workspace.";
 
@@ -352,6 +355,30 @@ function imageMetadataForRelativePath(
 
   metadataByPath.set(relativePath, metadata);
   return metadata;
+}
+
+function runPromptGuidanceHumanModifiedMigration(
+  db: Database.Database,
+  dbPath: string,
+  dbExisted: boolean
+): void {
+  if (!needsPromptGuidanceHumanModifiedMigration(db)) {
+    markMigrationApplied(db, PROMPT_GUIDANCE_HUMAN_MODIFIED_MIGRATION);
+    return;
+  }
+
+  if (dbExisted && !isMigrationApplied(db, PROMPT_GUIDANCE_HUMAN_MODIFIED_MIGRATION)) {
+    backupDatabase(db, dbPath);
+  }
+
+  db.transaction(() => {
+    db.exec("ALTER TABLE prompt_guidance ADD COLUMN human_modified INTEGER NOT NULL DEFAULT 0;");
+    markMigrationApplied(db, PROMPT_GUIDANCE_HUMAN_MODIFIED_MIGRATION);
+  })();
+}
+
+function needsPromptGuidanceHumanModifiedMigration(db: Database.Database): boolean {
+  return tableExists(db, "prompt_guidance") && !tableHasColumn(db, "prompt_guidance", "human_modified");
 }
 
 function runPromptRevisionMigration(db: Database.Database, dbPath: string, dbExisted: boolean): void {

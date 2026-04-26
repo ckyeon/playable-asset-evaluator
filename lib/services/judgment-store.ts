@@ -121,22 +121,29 @@ export class JudgmentStore {
       const guidanceText = input.nextPromptGuidance?.trim();
       if (guidanceText) {
         const existingGuidance = db
-          .prepare("SELECT id FROM prompt_guidance WHERE evaluation_id = ? ORDER BY created_at DESC LIMIT 1")
-          .get(savedEvaluationId) as { id: string } | undefined;
+          .prepare(
+            `SELECT id, guidance_text, human_modified
+             FROM prompt_guidance
+             WHERE evaluation_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1`
+          )
+          .get(savedEvaluationId) as { id: string; guidance_text: string; human_modified: 0 | 1 } | undefined;
 
         if (existingGuidance) {
           savedGuidanceId = existingGuidance.id;
+          const humanModified = existingGuidance.human_modified === 1 || existingGuidance.guidance_text !== guidanceText ? 1 : 0;
           db.prepare(
             `UPDATE prompt_guidance
-             SET guidance_text = ?, confidence_state = ?
+             SET guidance_text = ?, confidence_state = ?, human_modified = ?
              WHERE id = ?`
-          ).run(guidanceText, confidenceState, existingGuidance.id);
+          ).run(guidanceText, confidenceState, humanModified, existingGuidance.id);
         } else {
           savedGuidanceId = randomUUID();
           db.prepare(
             `INSERT INTO prompt_guidance
-              (id, style_profile_id, evaluation_id, guidance_text, confidence_state)
-            VALUES (?, ?, ?, ?, ?)`
+              (id, style_profile_id, evaluation_id, guidance_text, confidence_state, human_modified)
+            VALUES (?, ?, ?, ?, ?, 1)`
           ).run(savedGuidanceId, context.style_profile_id, savedEvaluationId, guidanceText, confidenceState);
         }
       } else {

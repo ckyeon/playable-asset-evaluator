@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS prompt_guidance (
   evaluation_id TEXT REFERENCES evaluations(id) ON DELETE SET NULL,
   guidance_text TEXT NOT NULL,
   confidence_state TEXT NOT NULL CHECK (confidence_state IN ('normal', 'low_confidence')),
+  human_modified INTEGER NOT NULL DEFAULT 0,
   copied_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

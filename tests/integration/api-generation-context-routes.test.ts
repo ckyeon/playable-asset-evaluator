@@ -249,13 +249,18 @@ describe("generation context API routes", () => {
       params(profile.id)
     );
     const historyData = (await historyResponse.json()) as {
-      history: Array<{ evaluations: Array<{ prompt_guidance?: Array<{ id: string; evaluation_id: string; created_at: string }> }> }>;
+      history: Array<{
+        evaluations: Array<{
+          prompt_guidance?: Array<{ id: string; evaluation_id: string; human_modified: 0 | 1; created_at: string }>;
+        }>;
+      }>;
     };
     expect(historyData.history.flatMap((item) => item.evaluations.flatMap((evaluation) => evaluation.prompt_guidance || []))).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: guidanceId,
           evaluation_id: expect.any(String),
+          human_modified: 0,
           created_at: expect.any(String)
         })
       ])

@@ -123,6 +123,7 @@ export interface PromptGuidance {
   evaluation_id: string | null;
   guidance_text: string;
   confidence_state: ConfidenceState;
+  human_modified: 0 | 1;
   copied_at: string | null;
   created_at: string;
 }
@@ -133,6 +134,7 @@ export interface SourceGuidanceOption {
   candidate_id: string;
   guidance_text: string;
   confidence_state: ConfidenceState;
+  human_modified: 0 | 1;
   created_at: string;
   decision_label: DecisionLabel;
   fit_score: number;

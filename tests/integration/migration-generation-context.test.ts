@@ -142,6 +142,7 @@ describe("generation context migration", () => {
     useTempDataDir();
     const db = getDb();
     const promptRevisionColumns = db.prepare("PRAGMA table_info(prompt_revisions)").all() as Array<{ name: string }>;
+    const promptGuidanceColumns = db.prepare("PRAGMA table_info(prompt_guidance)").all() as Array<{ name: string }>;
     const referenceColumns = db.prepare("PRAGMA table_info(reference_assets)").all() as Array<{ name: string }>;
     const contextAssetColumns = db.prepare("PRAGMA table_info(generation_context_assets)").all() as Array<{ name: string }>;
     const candidateColumns = db.prepare("PRAGMA table_info(candidate_images)").all() as Array<{ name: string }>;
@@ -186,6 +187,16 @@ describe("generation context migration", () => {
       "created_at",
       "updated_at"
     ]);
+    expect(promptGuidanceColumns.map((column) => column.name)).toEqual([
+      "id",
+      "style_profile_id",
+      "evaluation_id",
+      "guidance_text",
+      "confidence_state",
+      "human_modified",
+      "copied_at",
+      "created_at"
+    ]);
     expect(candidateColumns.map((column) => column.name)).toEqual([
       "id",
       "generation_context_id",
@@ -206,6 +217,8 @@ describe("generation context migration", () => {
     expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260426_retire_evaluation_sessions"))
       .toBeTruthy();
     expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260426_persist_image_metadata"))
+      .toBeTruthy();
+    expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260426_track_human_modified_guidance"))
       .toBeTruthy();
   });
 
@@ -304,6 +317,89 @@ describe("generation context migration", () => {
       byte_size: null
     });
     expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260426_persist_image_metadata"))
+      .toBeTruthy();
+    expect(existsSync(`${dataDir}/backups`)).toBe(true);
+  });
+
+  it("adds human-modified provenance to existing prompt guidance", () => {
+    const dataDir = useTempDataDir();
+    const oldDb = new Database(getDbPath());
+    oldDb.exec(`
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE style_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        style_summary TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE generation_contexts (
+        id TEXT PRIMARY KEY,
+        style_profile_id TEXT NOT NULL REFERENCES style_profiles(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        generation_goal TEXT,
+        asset_focus TEXT NOT NULL DEFAULT 'other',
+        target_use TEXT,
+        source_prompt TEXT,
+        tool_name TEXT,
+        model_name TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE candidate_images (
+        id TEXT PRIMARY KEY,
+        generation_context_id TEXT NOT NULL REFERENCES generation_contexts(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        thumbnail_path TEXT,
+        generation_tool TEXT,
+        prompt_text TEXT,
+        prompt_missing INTEGER NOT NULL DEFAULT 0,
+        source_integrity TEXT NOT NULL DEFAULT 'complete',
+        recovery_note TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE evaluations (
+        id TEXT PRIMARY KEY,
+        candidate_image_id TEXT NOT NULL REFERENCES candidate_images(id) ON DELETE CASCADE,
+        model_name TEXT NOT NULL,
+        fit_score INTEGER NOT NULL,
+        decision_label TEXT NOT NULL,
+        human_reason TEXT,
+        ai_summary TEXT,
+        raw_model_output_json TEXT,
+        confidence_state TEXT NOT NULL,
+        evaluation_state TEXT NOT NULL DEFAULT 'draft',
+        rubric_version TEXT NOT NULL DEFAULT 'v2_generation_context',
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE prompt_guidance (
+        id TEXT PRIMARY KEY,
+        style_profile_id TEXT NOT NULL REFERENCES style_profiles(id) ON DELETE CASCADE,
+        evaluation_id TEXT REFERENCES evaluations(id) ON DELETE SET NULL,
+        guidance_text TEXT NOT NULL,
+        confidence_state TEXT NOT NULL,
+        copied_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      INSERT INTO style_profiles VALUES ('profile-1', 'Profile', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      INSERT INTO generation_contexts VALUES ('context-1', 'profile-1', 'Modern Context', 'Goal', 'other', NULL, 'prompt', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      INSERT INTO candidate_images VALUES ('candidate-1', 'context-1', 'assets/candidate.png', NULL, 'tool', 'prompt', 0, 'complete', NULL, '2026-01-01T00:00:01.000Z');
+      INSERT INTO evaluations VALUES ('evaluation-1', 'candidate-1', 'mock-evaluator-v1', 72, 'needs_edit', 'reason', NULL, NULL, 'normal', 'saved', 'v2_generation_context', '2026-01-01T00:00:02.000Z');
+      INSERT INTO prompt_guidance VALUES ('guidance-1', 'profile-1', 'evaluation-1', 'Keep the character clearer.', 'normal', NULL, '2026-01-01T00:00:03.000Z');
+    `);
+    oldDb.close();
+    closeDbForTests();
+
+    const db = getDb();
+    const columns = db.prepare("PRAGMA table_info(prompt_guidance)").all() as Array<{ name: string }>;
+
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(["human_modified"]));
+    expect(db.prepare("SELECT human_modified FROM prompt_guidance WHERE id = 'guidance-1'").get()).toEqual({
+      human_modified: 0
+    });
+    expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260426_track_human_modified_guidance"))
       .toBeTruthy();
     expect(existsSync(`${dataDir}/backups`)).toBe(true);
   });

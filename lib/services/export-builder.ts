@@ -72,7 +72,9 @@ interface AgentDatasetItem {
     | "ai_summary"
     | "human_reason"
   > & { criteria: EvaluationCriterion[] };
-  next_prompt_guidance: Pick<PromptGuidance, "id" | "guidance_text" | "confidence_state" | "created_at"> | null;
+  next_prompt_guidance:
+    | (Pick<PromptGuidance, "id" | "guidance_text" | "confidence_state" | "created_at"> & { human_modified: boolean })
+    | null;
   provenance: {
     created_at: string;
     workspace_version: "local";
@@ -303,6 +305,7 @@ export class ExportBuilder {
                   id: latestGuidance.id,
                   guidance_text: latestGuidance.guidance_text,
                   confidence_state: latestGuidance.confidence_state,
+                  human_modified: latestGuidance.human_modified === 1,
                   created_at: latestGuidance.created_at
                 }
               : null,

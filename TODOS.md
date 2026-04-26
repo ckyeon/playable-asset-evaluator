@@ -165,7 +165,7 @@ Depends on: Agent-ready export contract.
 
 ### Track human-edited prompt guidance
 
-Status: Deferred by `/plan-eng-review`. The first agent-ready loop treats saved guidance as the final canonical guidance text.
+Status: Done. `prompt_guidance` now stores `human_modified`, with a startup migration that defaults legacy guidance to `0`, save-time detection for edited/manual guidance, UI/API exposure, and agent export provenance.
 
 What: Track whether saved prompt guidance was edited by a human before saving.
 
@@ -181,7 +181,7 @@ Cons:
 - Existing guidance records need a sensible default.
 - Can distract from proving the first single-candidate dataset loop.
 
-Context: The current plan saves the final guidance text and links it to child prompt revisions. That is enough for v1. A later quality layer can add `human_modified` or equivalent metadata once saved guidance is being used for agent evaluation.
+Context: Draft evaluator guidance is saved as `human_modified = 0` when unchanged. Edited draft guidance and manual guidance are saved as `human_modified = 1`, and unchanged resaves preserve the existing flag. Existing detail/history responses include the field through row spreading, and agent dataset exports expose it as a boolean on `next_prompt_guidance`.
 
 Effort: M.
 

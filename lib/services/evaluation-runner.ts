@@ -223,8 +223,8 @@ export class EvaluationRunner {
 
       db.prepare(
         `INSERT INTO prompt_guidance
-          (id, style_profile_id, evaluation_id, guidance_text, confidence_state)
-         VALUES (?, ?, ?, ?, ?)`
+          (id, style_profile_id, evaluation_id, guidance_text, confidence_state, human_modified)
+         VALUES (?, ?, ?, ?, ?, 0)`
       ).run(randomUUID(), styleProfileId, evaluationId, parsed.next_prompt_guidance, parsed.confidence_state);
     });
 

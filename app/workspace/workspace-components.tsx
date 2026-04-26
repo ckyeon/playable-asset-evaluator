@@ -1246,9 +1246,16 @@ export function JudgmentPanel({
             placeholder="Why is this usable, fixable, or wrong for this playable?"
           />
 
-          <label className="section-title" htmlFor="guidance">
-            Next prompt guidance
-          </label>
+          <div className="field-heading-row">
+            <label className="section-title" htmlFor="guidance">
+              Next prompt guidance
+            </label>
+            {activeSavedGuidance ? (
+              <span className={`guidance-provenance ${activeSavedGuidance.human_modified === 1 ? "is-human" : "is-ai"}`}>
+                {activeSavedGuidance.human_modified === 1 ? "Human edited" : "AI draft"}
+              </span>
+            ) : null}
+          </div>
           <textarea
             id="guidance"
             className="textarea"

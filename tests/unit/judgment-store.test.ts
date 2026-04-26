@@ -55,6 +55,82 @@ describe("JudgmentStore", () => {
     expect(result.evaluation.confidence_state).toBe("low_confidence");
   });
 
+  it("tracks unchanged and edited draft prompt guidance", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const store = new JudgmentStore();
+    const unchangedCandidate = await new AssetStorage().saveCandidateImage({
+      generationContextId: generationContext.id,
+      file: await createImageFile("unchanged-candidate.png"),
+      promptText: "bright slot icon"
+    });
+
+    const unchangedDraft = await new EvaluationRunner().evaluateCandidate(unchangedCandidate.id);
+    expect(
+      db.prepare("SELECT human_modified FROM prompt_guidance WHERE evaluation_id = ?").get(unchangedDraft.evaluation.id)
+    ).toEqual({ human_modified: 0 });
+
+    const unchangedSaved = store.saveJudgment({
+      candidateId: unchangedCandidate.id,
+      decisionLabel: "needs_edit",
+      humanReason: "The idea is close, but the silhouette needs cleanup.",
+      nextPromptGuidance: unchangedDraft.next_prompt_guidance
+    });
+    expect(unchangedSaved.guidance).toMatchObject({ human_modified: 0 });
+
+    const unchangedResaved = store.saveJudgment({
+      candidateId: unchangedCandidate.id,
+      decisionLabel: "needs_edit",
+      humanReason: "The same guidance still applies.",
+      nextPromptGuidance: unchangedDraft.next_prompt_guidance
+    });
+    expect(unchangedResaved.guidance).toMatchObject({ id: unchangedSaved.guidance?.id, human_modified: 0 });
+
+    const editedCandidate = await new AssetStorage().saveCandidateImage({
+      generationContextId: generationContext.id,
+      file: await createImageFile("edited-candidate.png"),
+      promptText: "bright slot icon"
+    });
+    const editedDraft = await new EvaluationRunner().evaluateCandidate(editedCandidate.id);
+    const editedSaved = store.saveJudgment({
+      candidateId: editedCandidate.id,
+      decisionLabel: "needs_edit",
+      humanReason: "The AI guidance is close, but needs a more specific direction.",
+      nextPromptGuidance: `${editedDraft.next_prompt_guidance} Add stronger rim light.`
+    });
+
+    expect(editedSaved.guidance).toMatchObject({ human_modified: 1 });
+  });
+
+  it("marks manual guidance as human modified and preserves it on unchanged resave", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const candidate = await new AssetStorage().saveCandidateImage({
+      generationContextId: generationContext.id,
+      file: await createImageFile("manual-guidance-candidate.png"),
+      promptText: "bright slot icon"
+    });
+    const store = new JudgmentStore();
+
+    const first = store.saveJudgment({
+      candidateId: candidate.id,
+      decisionLabel: "needs_edit",
+      humanReason: "The shape is usable, but lighting needs cleanup.",
+      nextPromptGuidance: "Regenerate with cleaner reward lighting and a stronger silhouette."
+    });
+    const second = store.saveJudgment({
+      candidateId: candidate.id,
+      decisionLabel: "needs_edit",
+      humanReason: "The same human guidance still applies.",
+      nextPromptGuidance: "Regenerate with cleaner reward lighting and a stronger silhouette."
+    });
+
+    expect(first.guidance).toMatchObject({ human_modified: 1 });
+    expect(second.guidance).toMatchObject({ id: first.guidance?.id, human_modified: 1 });
+  });
+
   it("deletes draft prompt guidance when saving with blank guidance", async () => {
     useTempDataDir();
     const db = getDb();

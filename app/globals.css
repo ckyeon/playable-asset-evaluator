@@ -165,6 +165,35 @@ button {
   line-height: 1.4;
 }
 
+.field-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.guidance-provenance {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.guidance-provenance.is-human {
+  border-color: rgb(50 122 91 / 35%);
+  background: #ecf8f2;
+  color: #1f6b4f;
+}
+
+.guidance-provenance.is-ai {
+  border-color: rgb(70 91 153 / 30%);
+  background: #eef3ff;
+  color: #334a85;
+}
+
 .profile-list {
   display: grid;
   gap: 8px;

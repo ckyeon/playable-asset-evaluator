@@ -102,6 +102,7 @@ export function WorkspaceClient() {
                 candidate_id: item.candidate.id,
                 guidance_text: guidance.guidance_text,
                 confidence_state: guidance.confidence_state,
+                human_modified: guidance.human_modified,
                 created_at: guidance.created_at,
                 decision_label: evaluation.decision_label,
                 fit_score: evaluation.fit_score
