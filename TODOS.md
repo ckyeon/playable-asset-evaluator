@@ -67,7 +67,7 @@ Cons:
 - Requires checking all callers before removal.
 - Can break any local scripts still using the old route names.
 
-Context: `/plan-ceo-review` selected full migration from `evaluation_sessions` to `generation_contexts` with old session routes kept only as thin deprecated aliases. The SQLite `evaluation_sessions` table remains intentionally for local DB migration/backfill safety and should be retired only by a dedicated schema cleanup.
+Context: `/plan-ceo-review` selected full migration from `evaluation_sessions` to `generation_contexts` with old session routes kept only as thin deprecated aliases. The HTTP aliases and legacy SQLite compatibility have both been retired; modern local databases are cleaned up to use only `generation_contexts`.
 
 Effort estimate: S human -> S with CC+gstack.
 
@@ -77,11 +77,13 @@ Depends on / blocked by: Generation Context implementation and route migration.
 
 ### Retire legacy evaluation_sessions DB compatibility
 
-Status: Deferred. Keep this separate from API alias removal so existing local databases stay protected.
+Status: Done. Fresh schemas, seed data, eval imports, and runtime services now use only `generation_contexts`.
 
 What: Remove the legacy `evaluation_sessions` table, seed writes, and migration backfill path after a dedicated compatibility review.
 
 Why: The product runtime now treats `generation_contexts` as the source of truth, but schema cleanup needs a safer migration boundary than the HTTP alias removal.
+
+Context: Already-modern databases with a stale `evaluation_sessions` table drop it during startup after confirming `generation_contexts` and `candidate_images.generation_context_id` are present. Truly old v1 databases that still depend on `evaluation_sessions`/`candidate_images.session_id` now fail with a clear retired-schema message instead of being silently backfilled.
 
 Priority: P2.
 

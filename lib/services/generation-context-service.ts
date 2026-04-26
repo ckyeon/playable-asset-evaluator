@@ -79,11 +79,6 @@ export class GenerationContextService {
         capped(input.modelName, 160)
       );
 
-      db.prepare(
-        `INSERT OR IGNORE INTO evaluation_sessions (id, style_profile_id, name, source_context)
-         VALUES (?, ?, ?, ?)`
-      ).run(id, profile.id, name, generationGoal);
-
       this.touchProfile(profile.id);
     })();
 
@@ -204,7 +199,6 @@ export class GenerationContextService {
          )`
       ).run(context.id);
       db.prepare("DELETE FROM generation_contexts WHERE id = ?").run(context.id);
-      db.prepare("DELETE FROM evaluation_sessions WHERE id = ?").run(context.id);
       this.touchProfile(context.style_profile_id);
     })();
 

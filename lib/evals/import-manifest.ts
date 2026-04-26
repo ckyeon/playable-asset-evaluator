@@ -488,11 +488,6 @@ export class EvalManifestImporter {
           context.targetUse,
           context.sourcePrompt
         );
-
-        db.prepare(
-          `INSERT INTO evaluation_sessions (id, style_profile_id, name, source_context)
-           VALUES (?, ?, ?, ?)`
-        ).run(context.id, plan.profile.id, context.name, context.generationGoal);
       }
 
       for (const revision of orderPromptRevisionsForInsert(plan.promptRevisions)) {

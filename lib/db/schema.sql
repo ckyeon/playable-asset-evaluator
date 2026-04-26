@@ -20,14 +20,6 @@ CREATE TABLE IF NOT EXISTS reference_assets (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE TABLE IF NOT EXISTS evaluation_sessions (
-  id TEXT PRIMARY KEY,
-  style_profile_id TEXT NOT NULL REFERENCES style_profiles(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  source_context TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
 CREATE TABLE IF NOT EXISTS generation_contexts (
   id TEXT PRIMARY KEY,
   style_profile_id TEXT NOT NULL REFERENCES style_profiles(id) ON DELETE CASCADE,
@@ -117,7 +109,6 @@ CREATE TABLE IF NOT EXISTS prompt_guidance (
 
 CREATE INDEX IF NOT EXISTS idx_reference_assets_profile_type ON reference_assets(style_profile_id, asset_type);
 CREATE INDEX IF NOT EXISTS idx_reference_assets_profile_pinned ON reference_assets(style_profile_id, pinned, created_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_profile_created ON evaluation_sessions(style_profile_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_generation_contexts_profile_updated ON generation_contexts(style_profile_id, updated_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_generation_context_assets_context_origin ON generation_context_assets(generation_context_id, origin, created_at);
 CREATE INDEX IF NOT EXISTS idx_generation_context_assets_reference ON generation_context_assets(reference_asset_id);

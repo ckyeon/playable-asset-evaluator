@@ -18,26 +18,39 @@ export function getDb(): Database.Database {
 
   if (cachedDb) {
     cachedDb.close();
+    cachedDb = null;
+    cachedDbPath = null;
   }
 
   const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  ensureSchemaMigrationsTable(db);
+  try {
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
 
-  const schema = readFileSync(path.join(process.cwd(), "lib", "db", "schema.sql"), "utf8");
-  if (tableExists(db, "style_profiles")) {
-    runGenerationContextMigration(db, dbPath, dbExisted);
-    runPromptRevisionMigration(db, dbPath, dbExisted);
+    if (tableExists(db, "style_profiles")) {
+      assertNoRetiredLegacySessionSchema(db);
+    }
+    ensureSchemaMigrationsTable(db);
+
+    const schema = readFileSync(path.join(process.cwd(), "lib", "db", "schema.sql"), "utf8");
+    if (tableExists(db, "style_profiles")) {
+      runGenerationContextMigration(db, dbPath, dbExisted);
+      runPromptRevisionMigration(db, dbPath, dbExisted);
+    }
+    db.exec(schema);
+    runLegacySessionCleanupMigration(db, dbPath, dbExisted);
+    seedDefaultData(db);
+    markMigrationApplied(db, GENERATION_CONTEXT_MIGRATION);
+    markMigrationApplied(db, PROMPT_REVISION_MIGRATION);
+    markMigrationApplied(db, LEGACY_SESSION_RETIREMENT_MIGRATION);
+
+    cachedDb = db;
+    cachedDbPath = dbPath;
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
   }
-  db.exec(schema);
-  seedDefaultData(db);
-  markMigrationApplied(db, GENERATION_CONTEXT_MIGRATION);
-  markMigrationApplied(db, PROMPT_REVISION_MIGRATION);
-
-  cachedDb = db;
-  cachedDbPath = dbPath;
-  return db;
 }
 
 export function closeDbForTests(): void {
@@ -50,6 +63,9 @@ export function closeDbForTests(): void {
 
 const GENERATION_CONTEXT_MIGRATION = "20260423_generation_context";
 const PROMPT_REVISION_MIGRATION = "20260425_prompt_revisions";
+const LEGACY_SESSION_RETIREMENT_MIGRATION = "20260426_retire_evaluation_sessions";
+const RETIRED_LEGACY_SESSION_SCHEMA_MESSAGE =
+  "This Asset Evaluator database uses the retired evaluation_sessions schema. Upgrade it with an Asset Evaluator version from before 2026-04-26, or import the data into a fresh workspace.";
 
 function ensureSchemaMigrationsTable(db: Database.Database): void {
   db.exec(`
@@ -92,10 +108,28 @@ function markMigrationApplied(db: Database.Database, version: string): void {
   ).run(version);
 }
 
+function assertNoRetiredLegacySessionSchema(db: Database.Database): void {
+  const hasLegacySessions = tableExists(db, "evaluation_sessions");
+  const hasGenerationContexts = tableExists(db, "generation_contexts");
+  const hasCandidateImages = tableExists(db, "candidate_images");
+  const candidateHasLegacySessionId = tableHasColumn(db, "candidate_images", "session_id");
+  const candidateHasGenerationContextId = tableHasColumn(db, "candidate_images", "generation_context_id");
+
+  if ((hasLegacySessions && !hasGenerationContexts) || (candidateHasLegacySessionId && !candidateHasGenerationContextId)) {
+    throw new Error(RETIRED_LEGACY_SESSION_SCHEMA_MESSAGE);
+  }
+
+  if (hasCandidateImages && !candidateHasGenerationContextId) {
+    throw new Error(
+      "This Asset Evaluator database has an unsupported pre-generation-context candidate_images schema. " +
+        "Import the data into a fresh workspace before opening it with this version."
+    );
+  }
+}
+
 function runGenerationContextMigration(db: Database.Database, dbPath: string, dbExisted: boolean): void {
   const needsMigration =
     !tableExists(db, "generation_contexts") ||
-    (tableExists(db, "candidate_images") && !tableHasColumn(db, "candidate_images", "generation_context_id")) ||
     (tableExists(db, "evaluations") && !tableHasColumn(db, "evaluations", "rubric_version")) ||
     (tableExists(db, "evaluation_criteria") && !tableSql(db, "evaluation_criteria").includes("profile_fit"));
 
@@ -137,40 +171,7 @@ function runGenerationContextMigration(db: Database.Database, dbPath: string, db
       );
     `);
 
-    if (tableExists(db, "evaluation_sessions")) {
-      db.prepare(
-        `INSERT OR IGNORE INTO generation_contexts
-          (id, style_profile_id, name, generation_goal, asset_focus, target_use, source_prompt, tool_name, model_name, created_at, updated_at)
-         SELECT id, style_profile_id, name, source_context, 'other', NULL, NULL, NULL, NULL, created_at, created_at
-         FROM evaluation_sessions`
-      ).run();
-    }
-
     ensureProfileDefaultContexts(db);
-
-    if (tableExists(db, "candidate_images") && !tableHasColumn(db, "candidate_images", "generation_context_id")) {
-      db.exec(`
-        CREATE TABLE candidate_images_new (
-          id TEXT PRIMARY KEY,
-          generation_context_id TEXT NOT NULL REFERENCES generation_contexts(id) ON DELETE CASCADE,
-          file_path TEXT NOT NULL,
-          thumbnail_path TEXT,
-          generation_tool TEXT,
-          prompt_text TEXT,
-          prompt_missing INTEGER NOT NULL DEFAULT 0,
-          source_integrity TEXT NOT NULL DEFAULT 'complete' CHECK (source_integrity IN ('complete', 'incomplete')),
-          recovery_note TEXT,
-          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-        );
-      `);
-      db.prepare(
-        `INSERT INTO candidate_images_new
-          (id, generation_context_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note, created_at)
-         SELECT id, session_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note, created_at
-         FROM candidate_images`
-      ).run();
-      db.exec("DROP TABLE candidate_images; ALTER TABLE candidate_images_new RENAME TO candidate_images;");
-    }
 
     if (tableExists(db, "evaluations") && !tableHasColumn(db, "evaluations", "rubric_version")) {
       db.exec("ALTER TABLE evaluations ADD COLUMN rubric_version TEXT NOT NULL DEFAULT 'v1_style_profile';");
@@ -201,6 +202,35 @@ function runGenerationContextMigration(db: Database.Database, dbPath: string, db
   } finally {
     db.pragma("foreign_keys = ON");
   }
+}
+
+function runLegacySessionCleanupMigration(db: Database.Database, dbPath: string, dbExisted: boolean): void {
+  if (!tableExists(db, "evaluation_sessions")) {
+    markMigrationApplied(db, LEGACY_SESSION_RETIREMENT_MIGRATION);
+    return;
+  }
+
+  const hasModernContextSchema =
+    tableExists(db, "generation_contexts") &&
+    tableExists(db, "candidate_images") &&
+    tableHasColumn(db, "candidate_images", "generation_context_id") &&
+    !tableHasColumn(db, "candidate_images", "session_id");
+
+  if (!hasModernContextSchema) {
+    throw new Error(RETIRED_LEGACY_SESSION_SCHEMA_MESSAGE);
+  }
+
+  if (dbExisted && !isMigrationApplied(db, LEGACY_SESSION_RETIREMENT_MIGRATION)) {
+    backupDatabase(db, dbPath);
+  }
+
+  db.transaction(() => {
+    db.exec(`
+      DROP INDEX IF EXISTS idx_sessions_profile_created;
+      DROP TABLE evaluation_sessions;
+    `);
+    markMigrationApplied(db, LEGACY_SESSION_RETIREMENT_MIGRATION);
+  })();
 }
 
 function runPromptRevisionMigration(db: Database.Database, dbPath: string, dbExisted: boolean): void {
@@ -340,10 +370,6 @@ function ensureProfileDefaultContexts(db: Database.Database): void {
         (id, style_profile_id, name, generation_goal, asset_focus, created_at, updated_at)
        VALUES (?, ?, ?, NULL, 'other', ?, ?)`
     ).run(contextId, profile.id, "Default generation context", profile.created_at, profile.created_at);
-    db.prepare(
-      `INSERT OR IGNORE INTO evaluation_sessions (id, style_profile_id, name, source_context, created_at)
-       VALUES (?, ?, ?, NULL, ?)`
-    ).run(contextId, profile.id, "Default generation context", profile.created_at);
   }
 }
 
@@ -375,16 +401,6 @@ function seedDefaultData(db: Database.Database): void {
       "Korean card game casino remix",
       "Reusable visual memory for Matgo-inspired casino slot playable assets.",
       styleSummary
-    );
-
-    db.prepare(
-      `INSERT INTO evaluation_sessions (id, style_profile_id, name, source_context)
-       VALUES (?, ?, ?, ?)`
-    ).run(
-      contextId,
-      profileId,
-      "Matgo -> Slot playable",
-      "Initial playable ad where Matgo visuals were remixed into a casino slot machine concept."
     );
 
     db.prepare(
