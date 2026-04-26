@@ -514,21 +514,23 @@ export class EvalManifestImporter {
         }
         db.prepare(
           `INSERT INTO reference_assets
-            (id, style_profile_id, asset_type, file_path, thumbnail_path, note, pinned)
-           VALUES (?, ?, ?, ?, ?, ?, 0)`
+            (id, style_profile_id, asset_type, file_path, thumbnail_path, sha256, byte_size, note, pinned)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`
         ).run(
           asset.referenceId,
           plan.profile.id,
           asset.assetType,
           asset.staged.filePath,
           asset.staged.thumbnailPath,
+          asset.staged.sha256,
+          asset.staged.byteSize,
           asset.note
         );
 
         db.prepare(
           `INSERT INTO generation_context_assets
-            (id, generation_context_id, reference_asset_id, origin, asset_type, file_path, thumbnail_path, snapshot_note)
-           VALUES (?, ?, ?, 'profile_reference', ?, ?, ?, ?)`
+            (id, generation_context_id, reference_asset_id, origin, asset_type, file_path, thumbnail_path, sha256, byte_size, snapshot_note)
+           VALUES (?, ?, ?, 'profile_reference', ?, ?, ?, ?, ?, ?)`
         ).run(
           asset.contextAssetId,
           asset.contextId,
@@ -536,6 +538,8 @@ export class EvalManifestImporter {
           asset.assetType,
           asset.staged.filePath,
           asset.staged.thumbnailPath,
+          asset.staged.sha256,
+          asset.staged.byteSize,
           asset.note
         );
       }
@@ -547,14 +551,16 @@ export class EvalManifestImporter {
 
         db.prepare(
           `INSERT INTO candidate_images
-            (id, generation_context_id, prompt_revision_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
-           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
+            (id, generation_context_id, prompt_revision_id, file_path, thumbnail_path, sha256, byte_size, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
         ).run(
           candidate.id,
           candidate.contextId,
           candidate.promptRevisionId,
           candidate.staged.filePath,
           candidate.staged.thumbnailPath,
+          candidate.staged.sha256,
+          candidate.staged.byteSize,
           candidate.promptText,
           candidate.promptMissing ? 1 : 0,
           candidate.sourceIntegrity,

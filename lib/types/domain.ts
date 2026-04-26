@@ -43,6 +43,8 @@ export interface ReferenceAsset {
   asset_type: AssetType;
   file_path: string;
   thumbnail_path: string | null;
+  sha256: string | null;
+  byte_size: number | null;
   note: string | null;
   pinned: 0 | 1;
   created_at: string;
@@ -70,6 +72,8 @@ export interface GenerationContextAsset {
   asset_type: AssetType;
   file_path: string;
   thumbnail_path: string | null;
+  sha256: string | null;
+  byte_size: number | null;
   snapshot_note: string | null;
   created_at: string;
 }
@@ -94,6 +98,8 @@ export interface CandidateImage {
   prompt_revision_id: string | null;
   file_path: string;
   thumbnail_path: string | null;
+  sha256: string | null;
+  byte_size: number | null;
   generation_tool: string | null;
   prompt_text: string | null;
   prompt_missing: 0 | 1;

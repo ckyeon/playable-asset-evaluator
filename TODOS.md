@@ -139,7 +139,7 @@ Depends on / blocked by: Prompt Revision Chain implementation and enough saved r
 
 ### Persist image hashes at upload/import time
 
-Status: Deferred by `/plan-eng-review`. Export-time hashing is enough for the first agent-ready dataset contract.
+Status: Done. `reference_assets`, `generation_context_assets`, and `candidate_images` now persist `sha256` and `byte_size` during upload/import, with a startup migration that backfills readable legacy files and leaves missing/unreadable files null.
 
 What: Store image `sha256` and `byte_size` when assets are uploaded or imported.
 
@@ -155,7 +155,7 @@ Cons:
 - Touches upload, import, and migration paths.
 - Adds storage fields before export usage proves the scale problem is real.
 
-Context: The agent-ready single candidate review chose `sha256` and `byte_size` computed lazily during export, with per-export path caching. Persisted hashes become worthwhile once datasets grow beyond a few hundred images or exports become automated.
+Context: The agent-ready single candidate review originally chose lazy export-time hashing. The persisted metadata path is now implemented: `ImageFileStore` computes metadata from the stored buffer, eval imports write the copied file metadata, profile-reference links copy stored metadata into context assets, and exports prefer persisted metadata while falling back to file reads for old/null rows. If a local file later goes missing, exports keep any stored hash/size as provenance and mark `missing_file`.
 
 Effort: M.
 

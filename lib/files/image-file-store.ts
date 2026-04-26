@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -9,6 +9,8 @@ export interface StoredImageFile {
   id: string;
   filePath: string;
   thumbnailPath: string | null;
+  sha256: string;
+  byteSize: number;
   absoluteFilePath: string;
   absoluteThumbnailPath: string | null;
 }
@@ -58,6 +60,8 @@ export class ImageFileStore {
     preferredId?: string;
   }): Promise<StoredImageFile> {
     const id = input.preferredId || randomUUID();
+    const byteSize = input.buffer.byteLength;
+    const sha256 = createHash("sha256").update(input.buffer).digest("hex");
     const validation = validateImageLike({
       name: input.name,
       type: input.type,
@@ -89,6 +93,8 @@ export class ImageFileStore {
       id,
       filePath: toDataRelativePath(absoluteFilePath),
       thumbnailPath,
+      sha256,
+      byteSize,
       absoluteFilePath,
       absoluteThumbnailPath: thumbnailPath ? absoluteThumbnailPath : null
     };

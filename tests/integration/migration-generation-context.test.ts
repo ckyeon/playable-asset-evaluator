@@ -1,8 +1,10 @@
 import Database from "better-sqlite3";
-import { existsSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import { closeDbForTests, getDb } from "@/lib/db/client";
-import { getDbPath } from "@/lib/files/paths";
+import { assetAbsolutePath, getDbPath } from "@/lib/files/paths";
 import { useTempDataDir } from "../helpers";
 
 describe("generation context migration", () => {
@@ -140,10 +142,37 @@ describe("generation context migration", () => {
     useTempDataDir();
     const db = getDb();
     const promptRevisionColumns = db.prepare("PRAGMA table_info(prompt_revisions)").all() as Array<{ name: string }>;
+    const referenceColumns = db.prepare("PRAGMA table_info(reference_assets)").all() as Array<{ name: string }>;
+    const contextAssetColumns = db.prepare("PRAGMA table_info(generation_context_assets)").all() as Array<{ name: string }>;
     const candidateColumns = db.prepare("PRAGMA table_info(candidate_images)").all() as Array<{ name: string }>;
 
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'evaluation_sessions'").get())
       .toBeUndefined();
+    expect(referenceColumns.map((column) => column.name)).toEqual([
+      "id",
+      "style_profile_id",
+      "asset_type",
+      "file_path",
+      "thumbnail_path",
+      "sha256",
+      "byte_size",
+      "note",
+      "pinned",
+      "created_at"
+    ]);
+    expect(contextAssetColumns.map((column) => column.name)).toEqual([
+      "id",
+      "generation_context_id",
+      "reference_asset_id",
+      "origin",
+      "asset_type",
+      "file_path",
+      "thumbnail_path",
+      "sha256",
+      "byte_size",
+      "snapshot_note",
+      "created_at"
+    ]);
     expect(promptRevisionColumns.map((column) => column.name)).toEqual([
       "id",
       "generation_context_id",
@@ -157,10 +186,125 @@ describe("generation context migration", () => {
       "created_at",
       "updated_at"
     ]);
-    expect(candidateColumns.some((column) => column.name === "prompt_revision_id")).toBe(true);
+    expect(candidateColumns.map((column) => column.name)).toEqual([
+      "id",
+      "generation_context_id",
+      "prompt_revision_id",
+      "file_path",
+      "thumbnail_path",
+      "sha256",
+      "byte_size",
+      "generation_tool",
+      "prompt_text",
+      "prompt_missing",
+      "source_integrity",
+      "recovery_note",
+      "created_at"
+    ]);
     expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260425_prompt_revisions"))
       .toBeTruthy();
     expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260426_retire_evaluation_sessions"))
       .toBeTruthy();
+    expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260426_persist_image_metadata"))
+      .toBeTruthy();
+  });
+
+  it("adds and backfills image metadata columns for existing modern databases", () => {
+    const dataDir = useTempDataDir();
+    const relativePath = "assets/legacy/shared.png";
+    const bytes = Buffer.from("legacy image bytes");
+    const absolutePath = assetAbsolutePath(relativePath);
+    mkdirSync(dirname(absolutePath), { recursive: true });
+    writeFileSync(absolutePath, bytes);
+
+    const oldDb = new Database(getDbPath());
+    oldDb.exec(`
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE style_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        style_summary TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE reference_assets (
+        id TEXT PRIMARY KEY,
+        style_profile_id TEXT NOT NULL REFERENCES style_profiles(id) ON DELETE CASCADE,
+        asset_type TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        thumbnail_path TEXT,
+        note TEXT,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE generation_contexts (
+        id TEXT PRIMARY KEY,
+        style_profile_id TEXT NOT NULL REFERENCES style_profiles(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        generation_goal TEXT,
+        asset_focus TEXT NOT NULL DEFAULT 'other',
+        target_use TEXT,
+        source_prompt TEXT,
+        tool_name TEXT,
+        model_name TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE generation_context_assets (
+        id TEXT PRIMARY KEY,
+        generation_context_id TEXT NOT NULL REFERENCES generation_contexts(id) ON DELETE CASCADE,
+        reference_asset_id TEXT REFERENCES reference_assets(id) ON DELETE SET NULL,
+        origin TEXT NOT NULL,
+        asset_type TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        thumbnail_path TEXT,
+        snapshot_note TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE candidate_images (
+        id TEXT PRIMARY KEY,
+        generation_context_id TEXT NOT NULL REFERENCES generation_contexts(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        thumbnail_path TEXT,
+        generation_tool TEXT,
+        prompt_text TEXT,
+        prompt_missing INTEGER NOT NULL DEFAULT 0,
+        source_integrity TEXT NOT NULL DEFAULT 'complete',
+        recovery_note TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      INSERT INTO style_profiles VALUES ('profile-1', 'Profile', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      INSERT INTO generation_contexts VALUES ('context-1', 'profile-1', 'Modern Context', 'Goal', 'other', NULL, 'prompt', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      INSERT INTO reference_assets VALUES ('reference-1', 'profile-1', 'character', '${relativePath}', NULL, 'legacy note', 0, '2026-01-01T00:00:01.000Z');
+      INSERT INTO generation_context_assets VALUES ('source-1', 'context-1', 'reference-1', 'profile_reference', 'character', '${relativePath}', NULL, 'legacy snapshot', '2026-01-01T00:00:02.000Z');
+      INSERT INTO candidate_images VALUES ('candidate-1', 'context-1', 'assets/legacy/missing.png', NULL, 'tool', 'prompt', 0, 'complete', NULL, '2026-01-01T00:00:03.000Z');
+    `);
+    oldDb.close();
+    closeDbForTests();
+
+    const expectedHash = createHash("sha256").update(bytes).digest("hex");
+    const db = getDb();
+
+    for (const tableName of ["reference_assets", "generation_context_assets", "candidate_images"]) {
+      const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+      expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(["sha256", "byte_size"]));
+    }
+    expect(db.prepare("SELECT sha256, byte_size FROM reference_assets WHERE id = 'reference-1'").get()).toEqual({
+      sha256: expectedHash,
+      byte_size: bytes.length
+    });
+    expect(db.prepare("SELECT sha256, byte_size FROM generation_context_assets WHERE id = 'source-1'").get()).toEqual({
+      sha256: expectedHash,
+      byte_size: bytes.length
+    });
+    expect(db.prepare("SELECT sha256, byte_size FROM candidate_images WHERE id = 'candidate-1'").get()).toEqual({
+      sha256: null,
+      byte_size: null
+    });
+    expect(db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get("20260426_persist_image_metadata"))
+      .toBeTruthy();
+    expect(existsSync(`${dataDir}/backups`)).toBe(true);
   });
 });

@@ -1,8 +1,8 @@
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { ensureBaseDirs, getDataDir, getDbPath } from "@/lib/files/paths";
+import { assetAbsolutePath, ensureBaseDirs, getDataDir, getDbPath } from "@/lib/files/paths";
 
 let cachedDb: Database.Database | null = null;
 let cachedDbPath: string | null = null;
@@ -36,6 +36,7 @@ export function getDb(): Database.Database {
     if (tableExists(db, "style_profiles")) {
       runGenerationContextMigration(db, dbPath, dbExisted);
       runPromptRevisionMigration(db, dbPath, dbExisted);
+      runImageMetadataMigration(db, dbPath, dbExisted);
     }
     db.exec(schema);
     runLegacySessionCleanupMigration(db, dbPath, dbExisted);
@@ -43,6 +44,7 @@ export function getDb(): Database.Database {
     markMigrationApplied(db, GENERATION_CONTEXT_MIGRATION);
     markMigrationApplied(db, PROMPT_REVISION_MIGRATION);
     markMigrationApplied(db, LEGACY_SESSION_RETIREMENT_MIGRATION);
+    markMigrationApplied(db, IMAGE_METADATA_MIGRATION);
 
     cachedDb = db;
     cachedDbPath = dbPath;
@@ -64,6 +66,7 @@ export function closeDbForTests(): void {
 const GENERATION_CONTEXT_MIGRATION = "20260423_generation_context";
 const PROMPT_REVISION_MIGRATION = "20260425_prompt_revisions";
 const LEGACY_SESSION_RETIREMENT_MIGRATION = "20260426_retire_evaluation_sessions";
+const IMAGE_METADATA_MIGRATION = "20260426_persist_image_metadata";
 const RETIRED_LEGACY_SESSION_SCHEMA_MESSAGE =
   "This Asset Evaluator database uses the retired evaluation_sessions schema. Upgrade it with an Asset Evaluator version from before 2026-04-26, or import the data into a fresh workspace.";
 
@@ -231,6 +234,124 @@ function runLegacySessionCleanupMigration(db: Database.Database, dbPath: string,
     `);
     markMigrationApplied(db, LEGACY_SESSION_RETIREMENT_MIGRATION);
   })();
+}
+
+function runImageMetadataMigration(db: Database.Database, dbPath: string, dbExisted: boolean): void {
+  if (!needsImageMetadataMigration(db)) {
+    markMigrationApplied(db, IMAGE_METADATA_MIGRATION);
+    return;
+  }
+
+  if (dbExisted && !isMigrationApplied(db, IMAGE_METADATA_MIGRATION)) {
+    backupDatabase(db, dbPath);
+  }
+
+  db.transaction(() => {
+    ensureImageMetadataColumns(db);
+    backfillImageMetadata(db);
+    markMigrationApplied(db, IMAGE_METADATA_MIGRATION);
+  })();
+}
+
+const IMAGE_METADATA_TABLES = ["reference_assets", "generation_context_assets", "candidate_images"] as const;
+
+function needsImageMetadataMigration(db: Database.Database): boolean {
+  const migrationApplied = isMigrationApplied(db, IMAGE_METADATA_MIGRATION);
+  for (const tableName of IMAGE_METADATA_TABLES) {
+    if (!tableExists(db, tableName)) {
+      continue;
+    }
+    if (!tableHasColumn(db, tableName, "sha256") || !tableHasColumn(db, tableName, "byte_size")) {
+      return true;
+    }
+    if (migrationApplied) {
+      continue;
+    }
+    const row = db
+      .prepare(`SELECT COUNT(*) AS count FROM ${tableName} WHERE file_path IS NOT NULL AND (sha256 IS NULL OR byte_size IS NULL)`)
+      .get() as { count: number };
+    if (row.count > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function ensureImageMetadataColumns(db: Database.Database): void {
+  for (const tableName of IMAGE_METADATA_TABLES) {
+    if (!tableExists(db, tableName)) {
+      continue;
+    }
+    if (!tableHasColumn(db, tableName, "sha256")) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN sha256 TEXT;`);
+    }
+    if (!tableHasColumn(db, tableName, "byte_size")) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN byte_size INTEGER;`);
+    }
+  }
+}
+
+function backfillImageMetadata(db: Database.Database): void {
+  const metadataByPath = new Map<string, ImageMetadata | null>();
+
+  for (const tableName of IMAGE_METADATA_TABLES) {
+    if (
+      !tableExists(db, tableName) ||
+      !tableHasColumn(db, tableName, "sha256") ||
+      !tableHasColumn(db, tableName, "byte_size")
+    ) {
+      continue;
+    }
+
+    const rows = db
+      .prepare(`SELECT id, file_path FROM ${tableName} WHERE file_path IS NOT NULL AND (sha256 IS NULL OR byte_size IS NULL)`)
+      .all() as Array<{ id: string; file_path: string }>;
+
+    for (const row of rows) {
+      const metadata = imageMetadataForRelativePath(row.file_path, metadataByPath);
+      if (!metadata) {
+        continue;
+      }
+      db.prepare(`UPDATE ${tableName} SET sha256 = ?, byte_size = ? WHERE id = ?`).run(
+        metadata.sha256,
+        metadata.byte_size,
+        row.id
+      );
+    }
+  }
+}
+
+interface ImageMetadata {
+  sha256: string;
+  byte_size: number;
+}
+
+function imageMetadataForRelativePath(
+  relativePath: string,
+  metadataByPath: Map<string, ImageMetadata | null>
+): ImageMetadata | null {
+  if (metadataByPath.has(relativePath)) {
+    return metadataByPath.get(relativePath) || null;
+  }
+
+  let metadata: ImageMetadata | null = null;
+  try {
+    const absolutePath = assetAbsolutePath(relativePath);
+    if (existsSync(absolutePath)) {
+      const stat = statSync(absolutePath);
+      if (stat.isFile()) {
+        metadata = {
+          sha256: createHash("sha256").update(readFileSync(absolutePath)).digest("hex"),
+          byte_size: stat.size
+        };
+      }
+    }
+  } catch {
+    metadata = null;
+  }
+
+  metadataByPath.set(relativePath, metadata);
+  return metadata;
 }
 
 function runPromptRevisionMigration(db: Database.Database, dbPath: string, dbExisted: boolean): void {

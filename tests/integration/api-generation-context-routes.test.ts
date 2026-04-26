@@ -48,6 +48,8 @@ describe("generation context API routes", () => {
       candidate: {
         generation_context_id: string;
         prompt_revision_id: string | null;
+        sha256: string | null;
+        byte_size: number | null;
         imageUrl: string | null;
         originalUrl: string | null;
       };
@@ -56,6 +58,8 @@ describe("generation context API routes", () => {
     expect(uploadResponse.status).toBe(201);
     expect(uploadData.candidate.generation_context_id).toBe(generationContext.id);
     expect(uploadData.candidate.prompt_revision_id).toBeTruthy();
+    expect(uploadData.candidate.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(uploadData.candidate.byte_size).toBeGreaterThan(0);
     expect(uploadData.candidate.imageUrl).toMatch(/^\/api\/assets\//);
     expect(uploadData.candidate.originalUrl).toMatch(/^\/api\/assets\//);
     expect(

@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS reference_assets (
   asset_type TEXT NOT NULL CHECK (asset_type IN ('card', 'coin_reward', 'button_cta', 'background_effect', 'character', 'other')),
   file_path TEXT NOT NULL,
   thumbnail_path TEXT,
+  sha256 TEXT,
+  byte_size INTEGER,
   note TEXT,
   pinned INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -42,6 +44,8 @@ CREATE TABLE IF NOT EXISTS generation_context_assets (
   asset_type TEXT NOT NULL CHECK (asset_type IN ('card', 'coin_reward', 'button_cta', 'background_effect', 'character', 'other')),
   file_path TEXT NOT NULL,
   thumbnail_path TEXT,
+  sha256 TEXT,
+  byte_size INTEGER,
   snapshot_note TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -52,6 +56,8 @@ CREATE TABLE IF NOT EXISTS candidate_images (
   prompt_revision_id TEXT REFERENCES prompt_revisions(id) ON DELETE SET NULL,
   file_path TEXT NOT NULL,
   thumbnail_path TEXT,
+  sha256 TEXT,
+  byte_size INTEGER,
   generation_tool TEXT,
   prompt_text TEXT,
   prompt_missing INTEGER NOT NULL DEFAULT 0,

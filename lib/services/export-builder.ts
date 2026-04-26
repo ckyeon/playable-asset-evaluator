@@ -255,11 +255,11 @@ export class ExportBuilder {
         asset_type: asset.asset_type,
         file_path: asset.file_path,
         snapshot_note: asset.snapshot_note,
-        ...fileMetadataForPath(asset.file_path, data.fileMetadataCache)
+        ...fileMetadataForEntity(asset, data.fileMetadataCache)
       }));
 
       for (const { candidate, promptRevision, evaluations } of context.candidates) {
-        const candidateMetadata = fileMetadataForPath(candidate.file_path, data.fileMetadataCache);
+        const candidateMetadata = fileMetadataForEntity(candidate, data.fileMetadataCache);
         for (const evaluation of evaluations) {
           if (evaluation.evaluation_state !== "saved") {
             continue;
@@ -370,6 +370,30 @@ function fileMetadataForPath(relativePath: string, cache: Map<string, FileMetada
 
   cache.set(relativePath, metadata);
   return metadata;
+}
+
+function fileMetadataForEntity(
+  entity: Pick<ReferenceAsset | GenerationContextAsset | CandidateImage, "file_path" | "sha256" | "byte_size">,
+  cache: Map<string, FileMetadata>
+): FileMetadata {
+  if (entity.sha256 && typeof entity.byte_size === "number") {
+    return {
+      missing_file: isMissingFilePath(entity.file_path),
+      sha256: entity.sha256,
+      byte_size: entity.byte_size
+    };
+  }
+
+  return fileMetadataForPath(entity.file_path, cache);
+}
+
+function isMissingFilePath(relativePath: string): boolean {
+  try {
+    const absolutePath = assetAbsolutePath(relativePath);
+    return !existsSync(absolutePath) || !statSync(absolutePath).isFile();
+  } catch {
+    return true;
+  }
 }
 
 function stripRevisionReadModel(revision: PromptRevisionReadModel): PromptRevision {

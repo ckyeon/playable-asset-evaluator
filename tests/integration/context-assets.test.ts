@@ -23,11 +23,15 @@ describe("generation context assets", () => {
       note: "same character reference"
     });
     const profileFilePath = reference.file_path;
+    expect(reference.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(reference.byte_size).toBeGreaterThan(0);
     const linked = service.addProfileReference({
       generationContextId: context.id,
       referenceAssetId: reference.id
     });
     expect(linked.origin).toBe("profile_reference");
+    expect(linked.sha256).toBe(reference.sha256);
+    expect(linked.byte_size).toBe(reference.byte_size);
 
     const uploaded = await service.uploadContextSourceAsset({
       generationContextId: context.id,
@@ -36,12 +40,16 @@ describe("generation context assets", () => {
       note: "actual generation source"
     });
     expect(existsSync(assetAbsolutePath(uploaded.file_path))).toBe(true);
+    expect(uploaded.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(uploaded.byte_size).toBeGreaterThan(0);
 
     const candidate = await storage.saveCandidateImage({
       generationContextId: context.id,
       file: await createImageFile("candidate.png", "image/png", "#997722"),
       promptText: "same character, shy expression"
     });
+    expect(candidate.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(candidate.byte_size).toBeGreaterThan(0);
     new JudgmentStore().saveJudgment({
       candidateId: candidate.id,
       decisionLabel: "good",

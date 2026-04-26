@@ -99,9 +99,19 @@ export class GenerationContextService {
     db.transaction(() => {
       db.prepare(
         `INSERT INTO generation_context_assets
-          (id, generation_context_id, reference_asset_id, origin, asset_type, file_path, thumbnail_path, snapshot_note)
-         VALUES (?, ?, ?, 'profile_reference', ?, ?, ?, ?)`
-      ).run(id, context.id, reference.id, reference.asset_type, reference.file_path, reference.thumbnail_path, reference.note);
+          (id, generation_context_id, reference_asset_id, origin, asset_type, file_path, thumbnail_path, sha256, byte_size, snapshot_note)
+         VALUES (?, ?, ?, 'profile_reference', ?, ?, ?, ?, ?, ?)`
+      ).run(
+        id,
+        context.id,
+        reference.id,
+        reference.asset_type,
+        reference.file_path,
+        reference.thumbnail_path,
+        reference.sha256,
+        reference.byte_size,
+        reference.note
+      );
       this.touchContext(context.id);
     })();
 
@@ -120,14 +130,16 @@ export class GenerationContextService {
       db.transaction(() => {
         db.prepare(
           `INSERT INTO generation_context_assets
-            (id, generation_context_id, reference_asset_id, origin, asset_type, file_path, thumbnail_path, snapshot_note)
-           VALUES (?, ?, NULL, 'context_upload', ?, ?, ?, ?)`
+            (id, generation_context_id, reference_asset_id, origin, asset_type, file_path, thumbnail_path, sha256, byte_size, snapshot_note)
+           VALUES (?, ?, NULL, 'context_upload', ?, ?, ?, ?, ?, ?)`
         ).run(
           stored.id,
           context.id,
           input.assetType,
           stored.filePath,
           stored.thumbnailPath,
+          stored.sha256,
+          stored.byteSize,
           capped(input.note, TEXT_CAPS.note)
         );
         this.touchContext(context.id);

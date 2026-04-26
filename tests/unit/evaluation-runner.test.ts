@@ -550,6 +550,8 @@ function fakeEvaluationContext(): EvaluationContext {
       prompt_revision_id: null,
       file_path: "assets/candidate.png",
       thumbnail_path: null,
+      sha256: null,
+      byte_size: null,
       generation_tool: null,
       prompt_text: "Create a nervous character pose.",
       prompt_missing: 0,
@@ -566,6 +568,8 @@ function fakeEvaluationContext(): EvaluationContext {
         asset_type: "character",
         file_path: "assets/source.png",
         thumbnail_path: null,
+        sha256: null,
+        byte_size: null,
         snapshot_note: "Original character pose.",
         created_at: "2026-01-01T00:00:00.000Z"
       }

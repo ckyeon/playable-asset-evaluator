@@ -42,14 +42,16 @@ export class AssetStorage {
     try {
       db.prepare(
         `INSERT INTO reference_assets
-          (id, style_profile_id, asset_type, file_path, thumbnail_path, note, pinned)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+          (id, style_profile_id, asset_type, file_path, thumbnail_path, sha256, byte_size, note, pinned)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         stored.id,
         input.styleProfileId,
         input.assetType,
         stored.filePath,
         stored.thumbnailPath,
+        stored.sha256,
+        stored.byteSize,
         input.note?.trim() || null,
         input.pinned ? 1 : 0
       );
@@ -85,14 +87,16 @@ export class AssetStorage {
     try {
       db.prepare(
         `INSERT INTO candidate_images
-          (id, generation_context_id, prompt_revision_id, file_path, thumbnail_path, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (id, generation_context_id, prompt_revision_id, file_path, thumbnail_path, sha256, byte_size, generation_tool, prompt_text, prompt_missing, source_integrity, recovery_note)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         stored.id,
         context.id,
         input.promptRevisionId?.trim() || null,
         stored.filePath,
         stored.thumbnailPath,
+        stored.sha256,
+        stored.byteSize,
         input.generationTool?.trim() || null,
         promptText,
         promptMissing ? 1 : 0,

@@ -24,6 +24,8 @@ export interface ReferenceAsset {
   asset_type: string;
   file_path: string;
   thumbnail_path: string | null;
+  sha256: string | null;
+  byte_size: number | null;
   note: string | null;
   imageUrl: string | null;
 }
@@ -55,6 +57,8 @@ export interface ContextSourceAsset {
   asset_type: string;
   file_path: string;
   thumbnail_path: string | null;
+  sha256: string | null;
+  byte_size: number | null;
   snapshot_note: string | null;
   imageUrl: string | null;
 }
@@ -65,6 +69,8 @@ export interface Candidate {
   prompt_revision_id: string | null;
   file_path: string;
   thumbnail_path: string | null;
+  sha256: string | null;
+  byte_size: number | null;
   prompt_text: string | null;
   prompt_missing: 0 | 1;
   recovery_note: string | null;

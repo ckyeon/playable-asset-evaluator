@@ -107,6 +107,8 @@ export function referenceToContextAsset(generationContextId: string) {
     asset_type: reference.asset_type,
     file_path: reference.file_path,
     thumbnail_path: reference.thumbnail_path,
+    sha256: reference.sha256,
+    byte_size: reference.byte_size,
     snapshot_note: reference.note,
     created_at: reference.created_at
   });

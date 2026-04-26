@@ -340,6 +340,18 @@ describe("eval manifest import", () => {
       .prepare("SELECT COUNT(*) AS count FROM candidate_images WHERE generation_context_id = ? AND prompt_revision_id IS NOT NULL")
       .get(importedContext?.id) as { count: number };
     expect(linkedCandidateCount.count).toBe(10);
+    expectPersistedMetadata(
+      db.prepare("SELECT sha256, byte_size FROM reference_assets WHERE style_profile_id = ?").all(importedProfile?.id),
+      8
+    );
+    expectPersistedMetadata(
+      db.prepare("SELECT sha256, byte_size FROM generation_context_assets WHERE generation_context_id = ?").all(importedContext?.id),
+      8
+    );
+    expectPersistedMetadata(
+      db.prepare("SELECT sha256, byte_size FROM candidate_images WHERE generation_context_id = ?").all(importedContext?.id),
+      10
+    );
 
     const evaluationCount = db
       .prepare(
@@ -459,13 +471,36 @@ describe("eval manifest import", () => {
       );
     }
 
+    const storedHash = "f".repeat(64);
+    const storedByteSize = 123_456;
     const missingCandidate = exported.agent_dataset_items[0].candidate;
+    db.prepare("UPDATE candidate_images SET sha256 = ?, byte_size = ? WHERE id = ?").run(
+      storedHash,
+      storedByteSize,
+      missingCandidate.id
+    );
+    const exportedWithStoredMetadata = new ExportBuilder().buildJson(importedProfile!.id) as typeof exported;
+    const storedMetadataItem = exportedWithStoredMetadata.agent_dataset_items.find(
+      (item) => item.candidate.id === missingCandidate.id
+    );
+    expect(storedMetadataItem?.candidate).toEqual(
+      expect.objectContaining({
+        missing_file: false,
+        sha256: storedHash,
+        byte_size: storedByteSize
+      })
+    );
+
     rmSync(assetAbsolutePath(missingCandidate.file_path), { force: true });
     const exportedWithMissingFile = new ExportBuilder().buildJson(importedProfile!.id) as typeof exported;
     const missingItem = exportedWithMissingFile.agent_dataset_items.find((item) => item.candidate.id === missingCandidate.id);
-    expect(missingItem?.candidate).toEqual(expect.objectContaining({ missing_file: true }));
-    expect(missingItem?.candidate).not.toHaveProperty("sha256");
-    expect(missingItem?.candidate).not.toHaveProperty("byte_size");
+    expect(missingItem?.candidate).toEqual(
+      expect.objectContaining({
+        missing_file: true,
+        sha256: storedHash,
+        byte_size: storedByteSize
+      })
+    );
     expect(missingItem?.provenance.missing_file).toBe(true);
     expect(new ExportBuilder().buildMarkdown(importedProfile!.id)).toContain("Generation Context: Emotion reaction batch");
   });
@@ -763,4 +798,13 @@ function writeFixtureAsset(datasetRoot: string, relativePath: string, sourcePath
   const absolutePath = path.join(datasetRoot, relativePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
   copyFileSync(sourcePath, absolutePath);
+}
+
+function expectPersistedMetadata(rows: unknown[], expectedCount: number): void {
+  const metadataRows = rows as Array<{ sha256: string | null; byte_size: number | null }>;
+  expect(metadataRows).toHaveLength(expectedCount);
+  for (const row of metadataRows) {
+    expect(row.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(row.byte_size).toBeGreaterThan(0);
+  }
 }
