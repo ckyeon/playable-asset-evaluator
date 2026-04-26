@@ -52,6 +52,21 @@ npm run test
 
 The AI Character Chat baseline is the first ready dogfood dataset: 8 source assets, 10 candidates, and 10 saved judgments.
 
+## Local CLI Evaluator
+
+The app uses the mock evaluator by default. To opt into a local subscription-backed evaluator, log in to the CLI first, then start the app with:
+
+```bash
+EVALUATION_ADAPTER=local-cli EVALUATOR_PROVIDER=gemini npm run dev
+```
+
+Supported providers are `gemini` and `codex`. Live evaluator checks are explicit so normal tests never spend quota:
+
+```bash
+npm run eval:live -- --provider gemini
+npm run eval:live -- --provider codex
+```
+
 ## Project Docs
 
 - [DESIGN.md](DESIGN.md) defines the desktop workspace layout, visual tokens, and interaction states.

@@ -9,5 +9,9 @@ afterEach(() => {
     rmSync(dataDir, { recursive: true, force: true });
   }
   delete process.env.ASSET_EVALUATOR_DATA_DIR;
+  delete process.env.EVALUATION_ADAPTER;
   delete process.env.EVALUATION_MODEL;
+  delete process.env.EVALUATOR_MODEL_NAME;
+  delete process.env.EVALUATOR_PROVIDER;
+  delete process.env.EVALUATOR_TIMEOUT_MS;
 });

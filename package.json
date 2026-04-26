@@ -12,7 +12,8 @@
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
     "eval:test": "vitest run tests/evals",
-    "eval:import": "tsx scripts/eval-import.ts"
+    "eval:import": "tsx scripts/eval-import.ts",
+    "eval:live": "tsx scripts/eval-live.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1",

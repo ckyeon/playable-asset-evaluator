@@ -13,6 +13,38 @@ test("workspace renders the seeded style profile", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Candidate image" })).toBeVisible();
 });
 
+test("workspace shows a recoverable evaluation error", async ({ page }) => {
+  const candidateAsset = path.join(
+    process.cwd(),
+    "tests/evals/ai-character-chat/assets/candidates/cand-01-nervous-clasped-hands.png"
+  );
+
+  await page.route("**/api/candidates/*/evaluate", async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Evaluation CLI failed." })
+    });
+  });
+
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: /Korean card game casino remix/ }).click();
+  await page.getByRole("button", { name: /Matgo -> Slot playable/ }).click();
+  await page.getByLabel("Candidate prompt").fill("Nervous emotion pose, same character.");
+  const candidateUploadResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/generation-contexts/") &&
+      response.url().includes("/candidates") &&
+      response.request().method() === "POST"
+  );
+  await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
+  await candidateUploadResponse;
+  await expect(page.getByText("Candidate image saved.")).toBeVisible();
+  await page.getByRole("button", { name: "Evaluate candidate" }).click();
+  await expect(page.getByText("Evaluation CLI failed.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Evaluate candidate" })).toBeEnabled();
+});
+
 test("workspace creates a context, uploads sources and candidate, evaluates, saves, and groups history", async ({ page }) => {
   test.setTimeout(60_000);
   const sourceAsset = path.join(

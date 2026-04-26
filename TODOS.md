@@ -25,6 +25,31 @@ Depends on / blocked by: Approved design doc at `/Users/ckyeon/.gstack/projects/
 
 ## Evaluation
 
+### Add persistent evaluation job queue for hosted or batch mode
+
+Status: Deferred by `/plan-eng-review`. The local CLI evaluator uses an in-memory per-candidate lock for the single-process local app.
+
+What: Add a SQLite-backed evaluation job queue when Asset Evaluator supports hosted, multi-process, or batch evaluation.
+
+Why: In-memory locks prevent duplicate local CLI calls in one Next.js process, but they do not protect multiple processes, hosted workers, or future batch agent runners.
+
+Pros:
+- Prevents duplicate paid/subscription-backed model calls across processes.
+- Enables retry history, job status, and eventual background batch evaluation.
+- Gives future Multi AI Agent evaluator workflows a clear scheduling boundary.
+
+Cons:
+- Adds schema, job states, polling UI, and migration work before local v1 needs it.
+- Can distract from proving the local single-candidate evaluator loop first.
+
+Context: The accepted local CLI evaluator plan keeps the app local-only and single-process, so `EVALUATION_ADAPTER=local-cli` is protected with an in-memory per-candidate lock. If `/workspace` later supports hosted deploys, batch evaluation, or multiple agent workers, move this lock into SQLite with explicit job states.
+
+Effort: M.
+
+Priority: P2.
+
+Depends on / blocked by: Local CLI evaluator adapter proving useful; hosted or batch evaluator scope.
+
 ### Remove deprecated sessions API aliases
 
 Status: Done. The deprecated HTTP routes and app response shapes now use only Generation Context APIs.

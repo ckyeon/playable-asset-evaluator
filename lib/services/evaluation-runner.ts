@@ -3,8 +3,6 @@ import { getDb } from "@/lib/db/client";
 import { parseModelEvaluation, type ModelEvaluationOutput } from "@/lib/model/evaluation-schema";
 import type {
   CandidateImage,
-  ConfidenceState,
-  DecisionLabel,
   Evaluation,
   EvaluationCriterion,
   EvaluationDraft,
@@ -14,21 +12,22 @@ import type {
   StyleProfile
 } from "@/lib/types/domain";
 import { computeContextConfidence } from "@/lib/services/generation-context-service";
+import {
+  createModelAdapterFromEnv,
+  EvaluationAdapterError,
+  referenceToContextAsset,
+  resolveEvaluationRunnerConfig,
+  type EvaluationContext,
+  type ModelAdapter
+} from "@/lib/services/evaluation-adapters";
 
-interface EvaluationContext {
-  profile: StyleProfile;
-  generationContext: GenerationContext;
-  candidate: CandidateImage;
-  sourceAssets: GenerationContextAsset[];
-  weakReferenceSet: boolean;
-}
-
-interface ModelAdapter {
-  evaluate(context: EvaluationContext): Promise<unknown>;
-}
+const activeCandidateEvaluations = new Set<string>();
 
 export class EvaluationRunner {
-  constructor(private readonly adapter: ModelAdapter = new MockEvaluationAdapter()) {}
+  constructor(
+    private readonly adapter: ModelAdapter = createModelAdapterFromEnv(),
+    private readonly modelName: string = resolveEvaluationRunnerConfig().modelName
+  ) {}
 
   selectReferenceSubset(styleProfileId: string, requestedReferenceIds: string[] = []): {
     references: ReferenceAsset[];
@@ -98,20 +97,43 @@ export class EvaluationRunner {
 
   async evaluateCandidate(candidateId: string, requestedReferenceIds: string[] = []): Promise<EvaluationDraft> {
     const context = this.loadContext(candidateId, requestedReferenceIds);
-    const raw = await this.adapter.evaluate(context);
+    if (activeCandidateEvaluations.has(candidateId)) {
+      throw new Error("Evaluation is already running for this candidate. Wait for it to finish before retrying.");
+    }
 
-    let parsed: ModelEvaluationOutput;
+    activeCandidateEvaluations.add(candidateId);
     try {
-      parsed = parseModelEvaluation(raw);
+      const raw = await this.evaluateWithFailedPersistence(candidateId, context);
+
+      let parsed: ModelEvaluationOutput;
+      try {
+        parsed = parseModelEvaluation(raw);
+      } catch (error) {
+        const failed = this.storeFailedEvaluation(candidateId, raw, "Model returned invalid evaluation JSON.");
+        throw Object.assign(new Error("Model returned invalid evaluation JSON."), {
+          cause: error,
+          failedEvaluation: failed
+        });
+      }
+
+      return this.storeDraftEvaluation(candidateId, context.profile.id, parsed, raw, context.weakReferenceSet);
+    } finally {
+      activeCandidateEvaluations.delete(candidateId);
+    }
+  }
+
+  private async evaluateWithFailedPersistence(candidateId: string, context: EvaluationContext): Promise<unknown> {
+    try {
+      return await this.adapter.evaluate(context);
     } catch (error) {
-      const failed = this.storeFailedEvaluation(candidateId, raw);
-      throw Object.assign(new Error("Model returned invalid evaluation JSON."), {
+      const rawOutput = rawOutputFromAdapterError(error);
+      const message = error instanceof Error ? error.message : "Evaluation failed.";
+      const failed = this.storeFailedEvaluation(candidateId, rawOutput, message);
+      throw Object.assign(new Error(message), {
         cause: error,
         failedEvaluation: failed
       });
     }
-
-    return this.storeDraftEvaluation(candidateId, context.profile.id, parsed, raw, context.weakReferenceSet);
   }
 
   private loadContext(candidateId: string, requestedReferenceIds: string[]): EvaluationContext {
@@ -184,7 +206,7 @@ export class EvaluationRunner {
       ).run(
         evaluationId,
         candidateId,
-        process.env.EVALUATION_MODEL || "mock-evaluator-v1",
+        this.modelName,
         parsed.fit_score,
         parsed.suggested_decision,
         parsed.ai_summary,
@@ -221,78 +243,24 @@ export class EvaluationRunner {
     };
   }
 
-  private storeFailedEvaluation(candidateId: string, raw: unknown): Evaluation {
+  private storeFailedEvaluation(candidateId: string, raw: unknown, summary: string): Evaluation {
     const db = getDb();
     const id = randomUUID();
     db.prepare(
       `INSERT INTO evaluations
         (id, candidate_image_id, model_name, fit_score, decision_label, human_reason, ai_summary, raw_model_output_json, confidence_state, evaluation_state, rubric_version)
        VALUES (?, ?, ?, 0, 'reject', NULL, ?, ?, 'low_confidence', 'failed', 'v2_generation_context')`
-    ).run(id, candidateId, process.env.EVALUATION_MODEL || "mock-evaluator-v1", "Invalid model JSON.", JSON.stringify(raw));
+    ).run(id, candidateId, this.modelName, summary, JSON.stringify(raw));
 
     return db.prepare("SELECT * FROM evaluations WHERE id = ?").get(id) as Evaluation;
   }
 }
 
-class MockEvaluationAdapter implements ModelAdapter {
-  async evaluate(context: EvaluationContext): Promise<ModelEvaluationOutput> {
-    const promptMissing = context.candidate.prompt_missing === 1 || !context.candidate.prompt_text;
-    const confidence: ConfidenceState = promptMissing ? "low_confidence" : "normal";
-    const weakPenalty = context.weakReferenceSet ? 10 : 0;
-    const promptPenalty = promptMissing ? 8 : 0;
-    const fitScore = Math.max(42, 78 - weakPenalty - promptPenalty);
-    const decision: DecisionLabel = fitScore >= 82 ? "good" : fitScore >= 55 ? "needs_edit" : "reject";
-    const referenceLanguage =
-      context.sourceAssets.length > 0
-        ? `${context.sourceAssets.length} context source assets`
-        : "the currently empty context source set";
-
-    return {
-      fit_score: fitScore,
-      criteria: [
-        {
-          criterion: "profile_fit",
-          score: Math.max(40, fitScore - 2),
-          reason: `Compare palette, lighting, and rendering weight against ${referenceLanguage}; keep the candidate closer to the accepted mobile-game look.`
-        },
-        {
-          criterion: "source_asset_match",
-          score: Math.max(40, fitScore + 3),
-          reason: "Check whether the candidate matches the actual source assets used for this generation context, not only the profile-wide memory."
-        },
-        {
-          criterion: "prompt_intent_match",
-          score: Math.max(40, fitScore + 1),
-          reason: "The candidate should satisfy the context prompt and brief instead of drifting into a generic asset variant."
-        },
-        {
-          criterion: "production_usability",
-          score: Math.max(40, fitScore - 4),
-          reason: "Prefer clean silhouettes, separable layers, and crops that can be animated in the playable build."
-        }
-      ],
-      ai_summary: promptMissing
-        ? "Draft evaluation is low confidence because the original generation prompt is missing."
-        : "Draft evaluation compares the candidate against the active generation context and source assets.",
-      suggested_decision: decision,
-      next_prompt_guidance: promptMissing
-        ? "Recover the likely prompt intent first, then ask for a crisp mobile-game asset matching the Korean card casino remix references."
-        : `Revise the next prompt toward ${context.generationContext.generation_goal || context.profile.name}: bright readable mobile-game rendering, clean silhouette, and reusable production-ready separation.`,
-      confidence_state: confidence
-    };
+function rawOutputFromAdapterError(error: unknown): unknown {
+  if (error instanceof EvaluationAdapterError) {
+    return error.rawOutput;
   }
-}
-
-function referenceToContextAsset(generationContextId: string) {
-  return (reference: ReferenceAsset): GenerationContextAsset => ({
-    id: reference.id,
-    generation_context_id: generationContextId,
-    reference_asset_id: reference.id,
-    origin: "profile_reference",
-    asset_type: reference.asset_type,
-    file_path: reference.file_path,
-    thumbnail_path: reference.thumbnail_path,
-    snapshot_note: reference.note,
-    created_at: reference.created_at
-  });
+  return {
+    error: error instanceof Error ? error.message : "Evaluation failed."
+  };
 }
