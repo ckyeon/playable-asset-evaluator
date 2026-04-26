@@ -43,7 +43,16 @@ export interface EvaluationFiles {
 const OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["fit_score", "criteria", "ai_summary", "suggested_decision", "next_prompt_guidance", "confidence_state"],
+  required: [
+    "fit_score",
+    "criteria",
+    "ai_summary",
+    "suggested_decision",
+    "target_use_decision",
+    "asset_quality_decision",
+    "next_prompt_guidance",
+    "confidence_state"
+  ],
   properties: {
     fit_score: { type: "integer", minimum: 0, maximum: 100 },
     criteria: {
@@ -66,10 +75,14 @@ const OUTPUT_SCHEMA = {
     },
     ai_summary: { type: "string", minLength: 1 },
     suggested_decision: { type: "string", enum: ["good", "needs_edit", "reject"] },
+    target_use_decision: { type: "string", enum: ["good", "needs_edit", "reject"] },
+    asset_quality_decision: { type: "string", enum: ["good", "needs_edit", "reject"] },
     next_prompt_guidance: { type: "string", minLength: 1 },
     confidence_state: { type: "string", enum: ["normal", "low_confidence"] }
   }
 } as const;
+
+const FORCE_KILL_GRACE_MS = 1_000;
 
 export class LocalCliEvaluationAdapter implements ModelAdapter {
   private readonly runner: CliProcessRunner;
@@ -213,13 +226,35 @@ export function buildLocalCliPrompt(
     })),
     weak_reference_set: context.weakReferenceSet
   };
+  const outputSkeleton = {
+    fit_score: 84,
+    criteria: [
+      { criterion: "profile_fit", score: 84, reason: "One concrete reason." },
+      { criterion: "source_asset_match", score: 82, reason: "One concrete reason." },
+      { criterion: "prompt_intent_match", score: 85, reason: "One concrete reason." },
+      { criterion: "production_usability", score: 80, reason: "One concrete reason." }
+    ],
+    ai_summary: "One concise summary.",
+    suggested_decision: "good",
+    target_use_decision: "good",
+    asset_quality_decision: "good",
+    next_prompt_guidance: "One actionable next prompt instruction.",
+    confidence_state: "normal"
+  };
 
   return [
     "You are evaluating one AI-generated game/ad asset against the actual generation context and source images.",
     "Return only a single JSON object. Do not wrap it in markdown. Do not include commentary.",
-    "The JSON must contain fit_score, criteria, ai_summary, suggested_decision, next_prompt_guidance, and confidence_state.",
+    "The JSON must contain fit_score, criteria, ai_summary, suggested_decision, target_use_decision, asset_quality_decision, next_prompt_guidance, and confidence_state.",
+    "fit_score and every criteria score MUST be an integer from 0 to 100. Do not use 0..1 scores. Do not use 1..10 scores.",
+    "criteria MUST be an array of exactly 4 objects. Do not return criteria as an object map. Do not return criteria as plain strings.",
     "Use exactly these four criteria: profile_fit, source_asset_match, prompt_intent_match, production_usability.",
     "Decision labels are good, needs_edit, or reject. Confidence states are normal or low_confidence.",
+    "Separate target-use fit from asset quality. target_use_decision judges whether the candidate fits the current target_use and source prompt role. asset_quality_decision judges whether the candidate is satisfying enough to use somewhere in the product.",
+    "A high-quality asset can still be target_use_decision=reject when it is the wrong asset role. For example, an endcard or ad composite can be asset_quality_decision=good but target_use_decision=reject for a reusable character cutout baseline.",
+    "suggested_decision MUST exactly match target_use_decision for backward compatibility.",
+    "Return JSON in exactly this shape, replacing the example values:",
+    JSON.stringify(outputSkeleton, null, 2),
     imageReferences,
     "Context metadata:",
     JSON.stringify(metadata, null, 2)
@@ -232,6 +267,53 @@ export function parseLocalCliStdout(stdout: string): unknown {
     throw new Error("Evaluation CLI returned empty JSON output.");
   }
   const parsed = JSON.parse(trimmed);
+  return normalizeProviderOutput(unwrapProviderEnvelope(parsed));
+}
+
+export function normalizeProviderOutput(value: unknown): unknown {
+  if (!isStringRecord(value)) {
+    return value;
+  }
+  const normalized: Record<string, unknown> = { ...value };
+  if (typeof normalized.fit_score === "number") {
+    normalized.fit_score = normalizeScore(normalized.fit_score);
+  }
+
+  if (isStringRecord(normalized.criteria)) {
+    const criteria = ["profile_fit", "source_asset_match", "prompt_intent_match", "production_usability"].map(
+      (criterion) => {
+        const rawCriterion = (normalized.criteria as Record<string, unknown>)[criterion];
+        if (isStringRecord(rawCriterion) && typeof rawCriterion.score === "number" && typeof rawCriterion.reason === "string") {
+          return {
+            criterion,
+            score: normalizeScore(rawCriterion.score),
+            reason: rawCriterion.reason
+          };
+        }
+        return null;
+      }
+    );
+    if (criteria.every(Boolean)) {
+      normalized.criteria = criteria;
+    }
+  }
+
+  if (Array.isArray(normalized.criteria)) {
+    normalized.criteria = normalized.criteria.map((criterion) => {
+      if (!isStringRecord(criterion) || typeof criterion.score !== "number") {
+        return criterion;
+      }
+      return {
+        ...criterion,
+        score: normalizeScore(criterion.score)
+      };
+    });
+  }
+
+  return normalized;
+}
+
+function unwrapProviderEnvelope(parsed: unknown): unknown {
   if (isStringRecord(parsed)) {
     const nested = parsed.response || parsed.text || parsed.output;
     if (typeof nested === "string" && nested.trim().startsWith("{")) {
@@ -239,6 +321,16 @@ export function parseLocalCliStdout(stdout: string): unknown {
     }
   }
   return parsed;
+}
+
+function normalizeScore(score: number): number {
+  if (score >= 0 && score <= 1) {
+    return Math.round(score * 100);
+  }
+  if (score > 1 && score <= 10) {
+    return Math.round(score * 10);
+  }
+  return Math.round(score);
 }
 
 function resolveEvaluationFiles(context: EvaluationContext, provider: LocalCliProvider): EvaluationFiles {
@@ -282,7 +374,7 @@ function isStringRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function runCliProcess(request: CliRunRequest): Promise<CliRunResult> {
+export function runCliProcess(request: CliRunRequest): Promise<CliRunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(request.command, request.args, {
       cwd: request.cwd,
@@ -294,6 +386,8 @@ function runCliProcess(request: CliRunRequest): Promise<CliRunResult> {
     let stderr = "";
     let settled = false;
     let timedOut = false;
+    let closed = false;
+    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
 
     const finish = (result: CliRunResult) => {
       if (settled) {
@@ -304,15 +398,35 @@ function runCliProcess(request: CliRunRequest): Promise<CliRunResult> {
       resolve(result);
     };
 
+    const requestChildTermination = () => {
+      if (closed) {
+        return;
+      }
+      child.kill("SIGTERM");
+      if (!forceKillTimer) {
+        forceKillTimer = setTimeout(() => {
+          if (!closed) {
+            child.kill("SIGKILL");
+          }
+        }, FORCE_KILL_GRACE_MS);
+        forceKillTimer.unref?.();
+      }
+    };
+
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      requestChildTermination();
+      finish({ exitCode: null, stdout, stderr, timedOut: true });
     }, request.timeoutMs);
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
+      if (request.provider === "gemini" && canParseCompleteGeminiResult(stdout)) {
+        requestChildTermination();
+        finish({ exitCode: 0, stdout, stderr, timedOut: false });
+      }
     });
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
@@ -323,6 +437,9 @@ function runCliProcess(request: CliRunRequest): Promise<CliRunResult> {
       }
       settled = true;
       clearTimeout(timer);
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
       reject(
         new EvaluationAdapterError("Evaluation CLI could not be started.", {
           provider: request.provider,
@@ -333,9 +450,26 @@ function runCliProcess(request: CliRunRequest): Promise<CliRunResult> {
       );
     });
     child.on("close", (exitCode) => {
+      closed = true;
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
       finish({ exitCode, stdout, stderr, timedOut });
     });
 
     child.stdin.end(request.input);
   });
+}
+
+function canParseCompleteGeminiResult(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{")) {
+    return false;
+  }
+  try {
+    const parsed = parseLocalCliStdout(trimmed);
+    return isStringRecord(parsed) && "fit_score" in parsed && "criteria" in parsed;
+  } catch {
+    return false;
+  }
 }

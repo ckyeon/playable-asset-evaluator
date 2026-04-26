@@ -67,6 +67,8 @@ npm run eval:live -- --provider gemini
 npm run eval:live -- --provider codex
 ```
 
+`eval:live` runs with concurrency 5 and a 240s per-candidate timeout by default. Override with `--concurrency` or `--timeout-ms` when a local provider is slower or faster.
+
 ## Project Docs
 
 - [DESIGN.md](DESIGN.md) defines the desktop workspace layout, visual tokens, and interaction states.

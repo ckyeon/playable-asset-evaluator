@@ -352,6 +352,25 @@ describe("eval manifest import", () => {
       .get(importedContext?.id) as { count: number };
     expect(evaluationCount.count).toBe(10);
 
+    const importedRawEvaluations = db
+      .prepare(
+        `SELECT raw_model_output_json
+         FROM evaluations
+         WHERE candidate_image_id IN (SELECT id FROM candidate_images WHERE generation_context_id = ?)
+           AND evaluation_state = 'saved'`
+      )
+      .all(importedContext?.id) as Array<{ raw_model_output_json: string }>;
+    const adCompositeRaw = importedRawEvaluations
+      .map((item) => JSON.parse(item.raw_model_output_json))
+      .find((item) => item.candidate_manifest_id === "cand-09");
+    expect(adCompositeRaw).toMatchObject({
+      expected_target_use_decision: "reject",
+      expected_quality_decision: "good",
+      quality_failure_reason: null,
+      usable_alternative_context: null,
+      next_prompt_guidance: null
+    });
+
     const firstCandidate = db
       .prepare("SELECT id FROM candidate_images WHERE generation_context_id = ? ORDER BY created_at DESC LIMIT 1")
       .get(importedContext?.id) as { id: string };

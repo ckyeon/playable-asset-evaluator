@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { parseEvalManifest } from "@/lib/evals/manifest-schema";
+import { manifestCandidateSchema, parseEvalManifest } from "@/lib/evals/manifest-schema";
 import manifest from "./manifest.json";
 
 const datasetDir = path.join(process.cwd(), "tests/evals/ai-character-chat");
@@ -45,12 +45,61 @@ describe("AI Character Chat character asset baseline", () => {
 
     for (const candidate of context.candidates) {
       expect(allowedDecisions.has(candidate.expected_decision)).toBe(true);
+      expect(candidate.expected_target_use_decision).toBe(candidate.expected_decision);
+      expect(candidate.expected_quality_decision).toBe("good");
       expect(candidate.human_reason.length).toBeGreaterThan(40);
       expect(candidate.fit_tags?.length).toBeGreaterThanOrEqual(2);
       expect(Array.isArray(candidate.risk_tags)).toBe(true);
       expect(typeof candidate.prompt_missing).toBe("boolean");
       await expectValidImage(candidate.image_path);
     }
+  });
+
+  it("validates future failed quality asset intake metadata", () => {
+    expect(() =>
+      manifestCandidateSchema.parse({
+        id: "failed-01",
+        image_path: "assets/candidates/failed-01.png",
+        expected_decision: "good",
+        expected_target_use_decision: "needs_edit",
+        expected_quality_decision: "reject",
+        human_reason: "This intentionally fails schema because target-use compatibility must mirror expected_decision.",
+        prompt_missing: false,
+        quality_failure_reason: "Face and hands are unusable.",
+        next_prompt_guidance: "Regenerate with stable face and simpler hands."
+      })
+    ).toThrow();
+
+    expect(() =>
+      manifestCandidateSchema.parse({
+        id: "failed-02",
+        image_path: "assets/candidates/failed-02.png",
+        expected_decision: "needs_edit",
+        expected_target_use_decision: "needs_edit",
+        expected_quality_decision: "needs_edit",
+        human_reason: "This intentionally fails schema because failed quality assets need an explicit failure reason.",
+        prompt_missing: false,
+        next_prompt_guidance: "Regenerate with cleaner silhouette."
+      })
+    ).toThrow();
+
+    expect(
+      manifestCandidateSchema.parse({
+        id: "failed-03",
+        image_path: "assets/candidates/failed-03.png",
+        expected_decision: "needs_edit",
+        expected_target_use_decision: "needs_edit",
+        expected_quality_decision: "reject",
+        human_reason: "This records a future failed asset with enough metadata to separate target fit from quality.",
+        prompt_missing: false,
+        quality_failure_reason: "The character identity drifted too far to use.",
+        usable_alternative_context: null,
+        next_prompt_guidance: "Regenerate with the original face proportions and matching uniform."
+      })
+    ).toMatchObject({
+      expected_quality_decision: "reject",
+      quality_failure_reason: "The character identity drifted too far to use."
+    });
   });
 });
 

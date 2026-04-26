@@ -28,15 +28,46 @@ export const manifestCandidateSchema = z
     id: z.string().trim().min(1),
     image_path: z.string().trim().min(1),
     expected_decision: decisionLabelSchema,
+    expected_target_use_decision: decisionLabelSchema.optional(),
+    expected_quality_decision: decisionLabelSchema.optional(),
     human_reason: z.string().trim().min(1),
     prompt_missing: z.boolean(),
     recovery_note: z.string().trim().min(1).nullable().optional(),
     prompt_text: z.string().trim().min(1).nullable().optional(),
     prompt_revision_id: z.string().trim().min(1).nullable().optional(),
+    quality_failure_reason: z.string().trim().min(1).nullable().optional(),
+    usable_alternative_context: z.string().trim().min(1).nullable().optional(),
+    next_prompt_guidance: z.string().trim().min(1).nullable().optional(),
     fit_tags: z.array(z.string().trim().min(1)).optional(),
     risk_tags: z.array(z.string().trim().min(1)).optional()
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((candidate, context) => {
+    if (candidate.expected_target_use_decision && candidate.expected_target_use_decision !== candidate.expected_decision) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "expected_target_use_decision must match expected_decision",
+        path: ["expected_target_use_decision"]
+      });
+    }
+
+    if (candidate.expected_quality_decision && candidate.expected_quality_decision !== "good") {
+      if (!candidate.quality_failure_reason) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "quality_failure_reason is required when expected_quality_decision is not good",
+          path: ["quality_failure_reason"]
+        });
+      }
+      if (!candidate.next_prompt_guidance) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "next_prompt_guidance is required when expected_quality_decision is not good",
+          path: ["next_prompt_guidance"]
+        });
+      }
+    }
+  });
 
 export const manifestPromptRevisionSchema = z
   .object({

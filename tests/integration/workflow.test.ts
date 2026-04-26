@@ -19,6 +19,8 @@ const validCliOutput = {
   ],
   ai_summary: "Candidate is strong against the context.",
   suggested_decision: "good",
+  target_use_decision: "good",
+  asset_quality_decision: "good",
   next_prompt_guidance: "Keep the character and preserve clean layer separation.",
   confidence_state: "normal"
 };
@@ -114,7 +116,24 @@ describe("asset evaluator workflow", () => {
       timeoutMs: 120_000,
       runner: async (runRequest) => {
         request = runRequest;
-        return { exitCode: 0, stdout: JSON.stringify(validCliOutput), stderr: "", timedOut: false };
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            session_id: "gemini-session",
+            response: JSON.stringify({
+              ...validCliOutput,
+              fit_score: 0.88,
+              criteria: {
+                profile_fit: { score: 0.88, reason: "Fits the style profile." },
+                source_asset_match: { score: 8.6, reason: "Matches the source assets." },
+                prompt_intent_match: { score: 90, reason: "Matches the prompt intent." },
+                production_usability: { score: 84, reason: "Production usable." }
+              }
+            })
+          }),
+          stderr: "Keychain warning that should not fail the result.",
+          timedOut: false
+        };
       }
     });
 
@@ -129,6 +148,60 @@ describe("asset evaluator workflow", () => {
     });
     expect(draft.criteria).toHaveLength(4);
     expect(draft.next_prompt_guidance).toBe("Keep the character and preserve clean layer separation.");
+    expect(JSON.parse(draft.evaluation.raw_model_output_json || "{}")).toMatchObject({
+      target_use_decision: "good",
+      asset_quality_decision: "good"
+    });
+  });
+
+  it("persists failed evaluations when Gemini returns scoreless criteria", async () => {
+    useTempDataDir();
+    const db = getDb();
+    const generationContext = db.prepare("SELECT id FROM generation_contexts LIMIT 1").get() as { id: string };
+    const storage = new AssetStorage();
+    const candidate = await storage.saveCandidateImage({
+      generationContextId: generationContext.id,
+      file: await createImageFile("scoreless-gemini-candidate.png", "image/png", "#7349d1"),
+      promptText: "Create the same character in a nervous pose."
+    });
+    const adapter = new LocalCliEvaluationAdapter({
+      provider: "gemini",
+      modelName: "gemini-cli",
+      timeoutMs: 120_000,
+      runner: async () => ({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          response: JSON.stringify({
+            ...validCliOutput,
+            fit_score: 0.88,
+            criteria: {
+              profile_fit: "Fits the style profile.",
+              source_asset_match: "Matches the source assets.",
+              prompt_intent_match: "Matches the prompt intent.",
+              production_usability: "Production usable."
+            }
+          })
+        }),
+        stderr: "",
+        timedOut: false
+      })
+    });
+
+    await expect(new EvaluationRunner(adapter, "gemini-cli").evaluateCandidate(candidate.id)).rejects.toThrow(
+      "Model returned invalid evaluation JSON."
+    );
+    const failed = db
+      .prepare("SELECT evaluation_state, ai_summary, raw_model_output_json FROM evaluations WHERE candidate_image_id = ?")
+      .get(candidate.id) as {
+      evaluation_state: string;
+      ai_summary: string;
+      raw_model_output_json: string;
+    };
+    expect(failed).toMatchObject({
+      evaluation_state: "failed",
+      ai_summary: "Model returned invalid evaluation JSON."
+    });
+    expect(JSON.parse(failed.raw_model_output_json)).toMatchObject({ fit_score: 88 });
   });
 
   it("persists failed evaluations from local CLI process failures", async () => {

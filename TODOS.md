@@ -189,15 +189,27 @@ Depends on: Agent-ready export contract and direct create-next-revision flow.
 
 ### Build AI Character Chat character eval baseline
 
-Status: Done. The ready dataset, copied eval images, integrity test, and `eval:import` dogfood path exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.
+Status: Done. The ready dataset, copied eval images, integrity test, `eval:import` dogfood path, and split target-use/asset-quality labels exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.
 
-What: Use AI Character Chat character assets as the first real v1 evaluator baseline: 8 reference images, 10 candidate images, expected `Good / Needs edit / Reject` labels, style tags, risk tags, and one-sentence human reasons.
+What: Use AI Character Chat character assets as the first real v1 evaluator baseline: 8 reference images, 10 candidate images, expected target-use `Good / Needs edit / Reject` labels, expected asset-quality labels, style tags, risk tags, and one-sentence human reasons.
 
 Why: This gives the evaluator a concrete style-match baseline before live model integration, using the actual character-chat workflow the product should support next.
 
-Next: Use this dataset as the first prompt/model regression gate when replacing the mock evaluator with a live multimodal adapter.
+Next: Use this dataset as the first prompt/model regression gate for live multimodal adapters. Interpret target-use misses separately from asset-quality misses so high-quality assets in the wrong role are not treated as bad images.
 
 Import check: `npm run eval:import -- tests/evals/ai-character-chat --dry-run` reports 1 style profile, 1 generation context, 8 source assets, 10 candidates, and 10 saved evaluations.
+
+### Add failed AI Character Chat quality examples
+
+Status: Deferred. The manifest schema now accepts future failed-asset intake fields, but the current AI Character Chat set is made of assets the user actually uses and likes.
+
+What: Add rejected or needs-edit AI Character Chat images with `expected_quality_decision`, `quality_failure_reason`, `usable_alternative_context`, and `next_prompt_guidance`.
+
+Why: The current baseline is good for target-use fit and role separation. Failed examples are needed to calibrate actual asset-quality failures instead of making the evaluator infer a quality floor from mostly successful assets.
+
+Priority: P1.
+
+Depends on / blocked by: User providing failed AI Character Chat assets and the reason each one was rejected.
 
 ### Build Matgo -> Slot tiny eval dataset
 

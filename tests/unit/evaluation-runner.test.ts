@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { parseModelEvaluation } from "@/lib/model/evaluation-schema";
 import { describe, expect, it } from "vitest";
 import { getDb } from "@/lib/db/client";
+import { parseLiveEvalArgs, recordLiveEvalComparison, shouldFailLiveEval } from "@/scripts/eval-live";
 import { EvaluationAdapterError } from "@/lib/services/evaluation-adapter-error";
 import {
   createModelAdapterFromEnv,
@@ -15,7 +17,9 @@ import {
   buildLocalCliPrompt,
   buildLocalCliRunRequest,
   LocalCliEvaluationAdapter,
-  parseLocalCliStdout
+  normalizeProviderOutput,
+  parseLocalCliStdout,
+  runCliProcess
 } from "@/lib/services/local-cli-evaluation-adapter";
 import { MockEvaluationAdapter } from "@/lib/services/mock-evaluation-adapter";
 import { useTempDataDir } from "../helpers";
@@ -30,6 +34,8 @@ const validModelOutput = {
   ],
   ai_summary: "Candidate fits the generation context.",
   suggested_decision: "good",
+  target_use_decision: "good",
+  asset_quality_decision: "good",
   next_prompt_guidance: "Keep the same character and improve asset separation.",
   confidence_state: "normal"
 };
@@ -158,6 +164,12 @@ describe("EvaluationRunner", () => {
     expect(geminiPrompt).toContain("Candidate image: @/tmp/candidate.png");
     expect(geminiPrompt).toContain("Source asset 1: @/tmp/source.png");
     expect(geminiPrompt).toContain("\"generation_goal\": \"Create reusable character poses.\"");
+    expect(geminiPrompt).toContain("Do not use 0..1 scores. Do not use 1..10 scores.");
+    expect(geminiPrompt).toContain("Do not return criteria as an object map.");
+    expect(geminiPrompt).toContain("\"fit_score\": 84");
+    expect(geminiPrompt).toContain("\"criteria\": [");
+    expect(geminiPrompt).toContain("Separate target-use fit from asset quality.");
+    expect(geminiPrompt).toContain("asset_quality_decision=good but target_use_decision=reject");
 
     const codexPrompt = buildLocalCliPrompt(context, files, "codex");
     expect(codexPrompt).toContain("Candidate image and source assets are attached with CLI image inputs.");
@@ -169,6 +181,175 @@ describe("EvaluationRunner", () => {
     expect(parseLocalCliStdout(JSON.stringify({ response: JSON.stringify(validModelOutput) }))).toEqual(validModelOutput);
     expect(() => parseLocalCliStdout("```json\n{}\n```")).toThrow();
     expect(() => parseLocalCliStdout("")).toThrow("Evaluation CLI returned empty JSON output.");
+  });
+
+  it("requires suggested_decision to match target_use_decision", () => {
+    expect(parseModelEvaluation(validModelOutput)).toMatchObject({
+      suggested_decision: "good",
+      target_use_decision: "good",
+      asset_quality_decision: "good"
+    });
+    expect(() =>
+      parseModelEvaluation({
+        ...validModelOutput,
+        suggested_decision: "good",
+        target_use_decision: "needs_edit"
+      })
+    ).toThrow();
+  });
+
+  it("normalizes Gemini score scales without inventing missing criterion scores", () => {
+    expect(normalizeProviderOutput({ ...validModelOutput, fit_score: 0.98 })).toMatchObject({ fit_score: 98 });
+    expect(normalizeProviderOutput({ ...validModelOutput, fit_score: 9 })).toMatchObject({ fit_score: 90 });
+    expect(normalizeProviderOutput({ ...validModelOutput, fit_score: 84 })).toMatchObject({ fit_score: 84 });
+    expect(
+      normalizeProviderOutput({
+        ...validModelOutput,
+        criteria: [
+          { criterion: "profile_fit", score: 0.8, reason: "Fits." },
+          { criterion: "source_asset_match", score: 8, reason: "Matches." },
+          { criterion: "prompt_intent_match", score: 85, reason: "Aligned." },
+          { criterion: "production_usability", score: 72.4, reason: "Usable." }
+        ]
+      })
+    ).toMatchObject({
+      criteria: [
+        { criterion: "profile_fit", score: 80 },
+        { criterion: "source_asset_match", score: 80 },
+        { criterion: "prompt_intent_match", score: 85 },
+        { criterion: "production_usability", score: 72 }
+      ]
+    });
+
+    const scorelessCriteria = normalizeProviderOutput({
+      ...validModelOutput,
+      criteria: {
+        profile_fit: "Looks right.",
+        source_asset_match: "Matches references.",
+        prompt_intent_match: "Matches prompt.",
+        production_usability: "Usable."
+      }
+    });
+    expect(() => parseModelEvaluation(scorelessCriteria)).toThrow();
+  });
+
+  it("normalizes Gemini envelope responses into schema-valid output when scores are present", () => {
+    const output = parseLocalCliStdout(
+      JSON.stringify({
+        session_id: "session-1",
+        response: JSON.stringify({
+          ...validModelOutput,
+          fit_score: 0.98,
+          criteria: {
+            profile_fit: { score: 0.9, reason: "Fits." },
+            source_asset_match: { score: 8, reason: "Matches." },
+            prompt_intent_match: { score: 86, reason: "Aligned." },
+            production_usability: { score: 72.4, reason: "Usable." }
+          }
+        })
+      })
+    );
+    expect(parseModelEvaluation(output)).toMatchObject({
+      fit_score: 98,
+      criteria: [
+        { criterion: "profile_fit", score: 90 },
+        { criterion: "source_asset_match", score: 80 },
+        { criterion: "prompt_intent_match", score: 86 },
+        { criterion: "production_usability", score: 72 }
+      ]
+    });
+  });
+
+  it("treats complete Gemini stdout JSON as success even if the process keeps running", async () => {
+    const result = await runCliProcess({
+      provider: "gemini",
+      command: process.execPath,
+      args: [
+        "-e",
+        `process.stdout.write(JSON.stringify({ response: ${JSON.stringify(JSON.stringify(validModelOutput))} })); setInterval(() => {}, 1000);`
+      ],
+      input: "",
+      timeoutMs: 1_000,
+      cwd: process.cwd(),
+      shell: false
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      timedOut: false
+    });
+    expect(parseModelEvaluation(parseLocalCliStdout(result.stdout))).toMatchObject({ fit_score: 84 });
+  });
+
+  it("does not treat non-result Gemini JSON as completed evaluator output", async () => {
+    const result = await runCliProcess({
+      provider: "gemini",
+      command: process.execPath,
+      args: ["-e", `process.stdout.write(JSON.stringify({ type: "status" })); setInterval(() => {}, 1000);`],
+      input: "",
+      timeoutMs: 1_000,
+      cwd: process.cwd(),
+      shell: false
+    });
+
+    expect(result).toMatchObject({
+      exitCode: null,
+      stdout: JSON.stringify({ type: "status" }),
+      timedOut: true
+    });
+  });
+
+  it("does not fail live eval on label mismatches alone", () => {
+    expect(shouldFailLiveEval({ failures: 0 })).toBe(false);
+    expect(shouldFailLiveEval({ failures: 1 })).toBe(true);
+  });
+
+  it("records live eval target and quality matches separately", () => {
+    const summary = {
+      total: 2,
+      completed: 0,
+      failures: 0,
+      target_matches: 0,
+      target_misses: 0,
+      quality_matches: 0,
+      quality_misses: 0
+    };
+    const first = recordLiveEvalComparison(
+      summary,
+      { targetUseDecision: "reject", qualityDecision: "good" },
+      { targetUseDecision: "reject", qualityDecision: "good" }
+    );
+    const second = recordLiveEvalComparison(
+      summary,
+      { targetUseDecision: "needs_edit", qualityDecision: "good" },
+      { targetUseDecision: "good", qualityDecision: "good" }
+    );
+
+    expect(first).toEqual({ targetOk: true, qualityOk: true });
+    expect(second).toEqual({ targetOk: false, qualityOk: true });
+    expect(summary).toMatchObject({
+      target_matches: 1,
+      target_misses: 1,
+      quality_matches: 2,
+      quality_misses: 0
+    });
+  });
+
+  it("defaults live eval concurrency to five and accepts explicit overrides", () => {
+    expect(parseLiveEvalArgs(["--provider", "gemini"], {}).concurrency).toBe(5);
+    expect(parseLiveEvalArgs(["--provider", "codex", "--concurrency", "2"]).concurrency).toBe(2);
+    expect(() => parseLiveEvalArgs(["--concurrency", "0"])).toThrow(
+      "Live eval concurrency must be a positive integer."
+    );
+  });
+
+  it("defaults live eval timeout to 240 seconds and accepts env or explicit overrides", () => {
+    expect(parseLiveEvalArgs(["--provider", "gemini"], {}).timeoutMs).toBe(240_000);
+    expect(parseLiveEvalArgs(["--provider", "gemini"], { EVALUATOR_TIMEOUT_MS: "180000" }).timeoutMs).toBe(180_000);
+    expect(parseLiveEvalArgs(["--provider", "gemini", "--timeout-ms", "300000"], {}).timeoutMs).toBe(300_000);
+    expect(() => parseLiveEvalArgs(["--provider", "gemini", "--timeout-ms", "0"], {})).toThrow(
+      "Live eval timeout must be a positive integer."
+    );
   });
 
   it("surfaces local CLI timeout and non-zero exit as adapter errors", async () => {

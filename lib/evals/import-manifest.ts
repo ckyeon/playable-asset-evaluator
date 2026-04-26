@@ -108,6 +108,11 @@ interface PlannedCandidate {
   contextId: string;
   promptRevisionId: string | null;
   expectedDecision: DecisionLabel;
+  expectedTargetUseDecision: DecisionLabel;
+  expectedQualityDecision: DecisionLabel | null;
+  qualityFailureReason: string | null;
+  usableAlternativeContext: string | null;
+  nextPromptGuidance: string | null;
   humanReason: string;
   promptText: string | null;
   promptMissing: boolean;
@@ -382,6 +387,11 @@ export class EvalManifestImporter {
       contextId: plannedContext.id,
       promptRevisionId,
       expectedDecision: candidate.expected_decision,
+      expectedTargetUseDecision: candidate.expected_target_use_decision || candidate.expected_decision,
+      expectedQualityDecision: candidate.expected_quality_decision || null,
+      qualityFailureReason: candidate.quality_failure_reason?.trim() || null,
+      usableAlternativeContext: candidate.usable_alternative_context?.trim() || null,
+      nextPromptGuidance: candidate.next_prompt_guidance?.trim() || null,
       humanReason: candidate.human_reason.trim(),
       promptText,
       promptMissing,
@@ -569,7 +579,12 @@ export class EvalManifestImporter {
           candidate.humanReason,
           JSON.stringify({
             imported_from_manifest: true,
-            candidate_manifest_id: candidate.manifestId
+            candidate_manifest_id: candidate.manifestId,
+            expected_target_use_decision: candidate.expectedTargetUseDecision,
+            expected_quality_decision: candidate.expectedQualityDecision,
+            quality_failure_reason: candidate.qualityFailureReason,
+            usable_alternative_context: candidate.usableAlternativeContext,
+            next_prompt_guidance: candidate.nextPromptGuidance
           }),
           candidate.confidenceState
         );

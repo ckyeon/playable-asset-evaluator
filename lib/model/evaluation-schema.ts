@@ -21,10 +21,20 @@ export const modelEvaluationSchema = z
       .length(4),
     ai_summary: z.string().min(1),
     suggested_decision: decisionLabelSchema,
+    target_use_decision: decisionLabelSchema,
+    asset_quality_decision: decisionLabelSchema,
     next_prompt_guidance: z.string().min(1),
     confidence_state: confidenceStateSchema
   })
   .superRefine((value, context) => {
+    if (value.suggested_decision !== value.target_use_decision) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "suggested_decision must match target_use_decision",
+        path: ["suggested_decision"]
+      });
+    }
+
     const seen = new Set(value.criteria.map((criterion) => criterion.criterion));
     for (const required of V2_CRITERIA) {
       if (!seen.has(required)) {

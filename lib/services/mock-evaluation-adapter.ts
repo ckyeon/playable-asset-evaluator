@@ -43,6 +43,8 @@ export class MockEvaluationAdapter implements ModelAdapter {
         ? "Draft evaluation is low confidence because the original generation prompt is missing."
         : "Draft evaluation compares the candidate against the active generation context and source assets.",
       suggested_decision: decision,
+      target_use_decision: decision,
+      asset_quality_decision: decision,
       next_prompt_guidance: promptMissing
         ? "Recover the likely prompt intent first, then ask for a crisp mobile-game asset matching the Korean card casino remix references."
         : `Revise the next prompt toward ${context.generationContext.generation_goal || context.profile.name}: bright readable mobile-game rendering, clean silhouette, and reusable production-ready separation.`,
