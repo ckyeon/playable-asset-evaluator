@@ -87,8 +87,12 @@ async function main(): Promise<void> {
     console.log(
       `Summary: completed=${summary.completed}/${summary.total}, failures=${summary.failures}, target_matches=${summary.target_matches}, target_misses=${summary.target_misses}, quality_matches=${summary.quality_matches}, quality_misses=${summary.quality_misses}.`
     );
-    if (shouldFailLiveEval(summary)) {
+    const gateFailures = liveEvalGateFailures(summary);
+    if (gateFailures.length > 0) {
+      console.log(`Regression gate failed: ${gateFailures.join(", ")}.`);
       process.exitCode = 1;
+    } else {
+      console.log("Regression gate passed: no CLI failures or target/quality label mismatches.");
     }
   } finally {
     closeDbForTests();
@@ -100,8 +104,26 @@ async function main(): Promise<void> {
   }
 }
 
-export function shouldFailLiveEval(summary: Pick<LiveEvalSummary, "failures">): boolean {
-  return summary.failures > 0;
+export function liveEvalGateFailures(
+  summary: Pick<LiveEvalSummary, "failures" | "target_misses" | "quality_misses">
+): string[] {
+  const failures: string[] = [];
+  if (summary.failures > 0) {
+    failures.push(`cli_failures=${summary.failures}`);
+  }
+  if (summary.target_misses > 0) {
+    failures.push(`target_use_misses=${summary.target_misses}`);
+  }
+  if (summary.quality_misses > 0) {
+    failures.push(`asset_quality_misses=${summary.quality_misses}`);
+  }
+  return failures;
+}
+
+export function shouldFailLiveEval(
+  summary: Pick<LiveEvalSummary, "failures" | "target_misses" | "quality_misses">
+): boolean {
+  return liveEvalGateFailures(summary).length > 0;
 }
 
 async function evaluateCandidates(

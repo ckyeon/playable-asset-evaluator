@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import path, { dirname, join } from "node:path";
 import { parseModelEvaluation } from "@/lib/model/evaluation-schema";
 import { describe, expect, it } from "vitest";
 import { getDb } from "@/lib/db/client";
-import { parseLiveEvalArgs, recordLiveEvalComparison, shouldFailLiveEval } from "@/scripts/eval-live";
+import { liveEvalGateFailures, parseLiveEvalArgs, recordLiveEvalComparison, shouldFailLiveEval } from "@/scripts/eval-live";
 import { EvaluationAdapterError } from "@/lib/services/evaluation-adapter-error";
 import {
   createModelAdapterFromEnv,
@@ -299,9 +299,18 @@ describe("EvaluationRunner", () => {
     });
   });
 
-  it("does not fail live eval on label mismatches alone", () => {
-    expect(shouldFailLiveEval({ failures: 0 })).toBe(false);
-    expect(shouldFailLiveEval({ failures: 1 })).toBe(true);
+  it("fails live eval on CLI failures or strict label mismatches", () => {
+    expect(shouldFailLiveEval({ failures: 0, target_misses: 0, quality_misses: 0 })).toBe(false);
+    expect(liveEvalGateFailures({ failures: 0, target_misses: 0, quality_misses: 0 })).toEqual([]);
+
+    expect(shouldFailLiveEval({ failures: 1, target_misses: 0, quality_misses: 0 })).toBe(true);
+    expect(liveEvalGateFailures({ failures: 1, target_misses: 2, quality_misses: 3 })).toEqual([
+      "cli_failures=1",
+      "target_use_misses=2",
+      "asset_quality_misses=3"
+    ]);
+    expect(shouldFailLiveEval({ failures: 0, target_misses: 1, quality_misses: 0 })).toBe(true);
+    expect(shouldFailLiveEval({ failures: 0, target_misses: 0, quality_misses: 1 })).toBe(true);
   });
 
   it("records live eval target and quality matches separately", () => {
@@ -336,7 +345,9 @@ describe("EvaluationRunner", () => {
   });
 
   it("defaults live eval concurrency to five and accepts explicit overrides", () => {
-    expect(parseLiveEvalArgs(["--provider", "gemini"], {}).concurrency).toBe(5);
+    const defaults = parseLiveEvalArgs(["--provider", "gemini"], {});
+    expect(defaults.datasetRoot).toBe(path.resolve("tests/evals/ai-character-chat"));
+    expect(defaults.concurrency).toBe(5);
     expect(parseLiveEvalArgs(["--provider", "codex", "--concurrency", "2"]).concurrency).toBe(2);
     expect(() => parseLiveEvalArgs(["--concurrency", "0"])).toThrow(
       "Live eval concurrency must be a positive integer."

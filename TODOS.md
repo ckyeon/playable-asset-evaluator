@@ -191,13 +191,13 @@ Depends on: Agent-ready export contract and direct create-next-revision flow.
 
 ### Build AI Character Chat character eval baseline
 
-Status: Done. The ready dataset, copied eval images, integrity test, `eval:import` dogfood path, and split target-use/asset-quality labels exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.
+Status: Done. The ready dataset, copied eval images, integrity test, `eval:import` dogfood path, split target-use/asset-quality labels, and strict `eval:live` regression gate exist at `/Users/ckyeon/workspace/gigr/asset-evaluator/tests/evals/ai-character-chat/`.
 
 What: Use AI Character Chat character assets as the first real v1 evaluator baseline: 8 reference images, 10 candidate images, expected target-use `Good / Needs edit / Reject` labels, expected asset-quality labels, style tags, risk tags, and one-sentence human reasons.
 
 Why: This gives the evaluator a concrete style-match baseline before live model integration, using the actual character-chat workflow the product should support next.
 
-Next: Use this dataset as the first prompt/model regression gate for live multimodal adapters. Interpret target-use misses separately from asset-quality misses so high-quality assets in the wrong role are not treated as bad images.
+Live gate: `npm run eval:live -- --provider gemini|codex` now imports this dataset and fails on CLI failures, target-use misses, or asset-quality misses while reporting target-use and asset-quality counts separately.
 
 Import check: `npm run eval:import -- tests/evals/ai-character-chat --dry-run` reports 1 style profile, 1 generation context, 8 source assets, 10 candidates, and 10 saved evaluations.
 

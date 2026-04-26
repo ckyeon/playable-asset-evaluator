@@ -76,14 +76,18 @@ The app uses the mock evaluator by default. To opt into a local subscription-bac
 EVALUATION_ADAPTER=local-cli EVALUATOR_PROVIDER=gemini npm run dev
 ```
 
-Supported providers are `gemini` and `codex`. Live evaluator checks are explicit so normal tests never spend quota:
+Supported providers are `gemini` and `codex`. Live evaluator checks are explicit so normal tests never spend quota.
+They run the AI Character Chat baseline as a strict regression gate:
 
 ```bash
 npm run eval:live -- --provider gemini
 npm run eval:live -- --provider codex
 ```
 
-`eval:live` runs with concurrency 5 and a 240s per-candidate timeout by default. Override with `--concurrency` or `--timeout-ms` when a local provider is slower or faster.
+`eval:live` fails when the provider CLI fails, when target-use labels miss, or when asset-quality labels miss. The
+summary reports target-use and asset-quality matches separately so high-quality images in the wrong role are not mixed
+with low-quality images. It runs with concurrency 5 and a 240s per-candidate timeout by default. Override with
+`--concurrency` or `--timeout-ms` when a local provider is slower or faster.
 
 ## Project Docs
 
