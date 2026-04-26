@@ -89,7 +89,7 @@ Priority: P2.
 
 ### Build Prompt Revision Chain
 
-Status: Planned. Deferred by `/plan-ceo-review` until after Generation Context lands.
+Status: Done. Prompt revisions are now first-class records linked to generation contexts and candidates.
 
 What: Track original prompt, follow-up prompt revisions, linked candidates, and whether generated guidance improved the next result.
 
@@ -104,17 +104,17 @@ Cons:
 - Adds DB/API/UI complexity beyond the core context migration.
 - Needs enough saved contexts before the history becomes useful.
 
-Context: The Generation Context amendment intentionally keeps only source prompt and next guidance in the current scope. This follow-up should add a prompt revision table, revision-to-candidate linkage, and guidance outcome tracking after the core context model is stable.
+Context: The implementation now includes the `prompt_revisions` table, root/child lineage, source guidance links, candidate linkage, parameter snapshots, effectiveness badges from saved evaluation deltas, eval manifest revision import support, export/read-model coverage, and a compact revision tree UI.
 
 Effort estimate: M human -> S/M with CC+gstack.
 
 Priority: P2.
 
-Depends on / blocked by: Generation Context implementation.
+Depends on / blocked by: None.
 
 ### Build reusable winning prompt snippets
 
-Status: Deferred by `/plan-ceo-review` for Prompt Revision Chain. Build after revision lineage and effectiveness badges have real saved outcomes.
+Status: Deferred by `/plan-ceo-review`. Build after revision lineage and effectiveness badges have real saved outcomes.
 
 What: Promote repeated successful prompt guidance into a style-profile-level snippet library that can be reused in future generation contexts.
 
@@ -135,7 +135,7 @@ Effort estimate: M human -> S with CC+gstack.
 
 Priority: P2.
 
-Depends on / blocked by: Prompt Revision Chain implementation and enough saved revision outcomes.
+Depends on / blocked by: Enough saved revision outcomes.
 
 ### Persist image hashes at upload/import time
 

@@ -88,4 +88,4 @@ npm run eval:live -- --provider codex
 ## Project Docs
 
 - [DESIGN.md](DESIGN.md) defines the desktop workspace layout, visual tokens, and interaction states.
-- [TODOS.md](TODOS.md) tracks deferred follow-up work such as Prompt Revision Chain, hosted batch queues, and future eval dataset gaps.
+- [TODOS.md](TODOS.md) tracks deferred follow-up work such as hosted batch queues, reusable prompt snippets, and future eval dataset gaps.
