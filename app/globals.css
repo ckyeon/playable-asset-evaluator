@@ -79,7 +79,8 @@ button {
 .workspace-shell {
   display: grid;
   grid-template-columns: clamp(240px, 21vw, 280px) minmax(0, 1fr) clamp(320px, 28vw, 380px);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar,
@@ -92,6 +93,8 @@ button {
 .sidebar {
   border-width: 0 1px 0 0;
   padding: 18px;
+  overflow-y: auto;
+  max-height: 100vh;
 }
 
 .inspector {
