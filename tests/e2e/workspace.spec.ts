@@ -9,8 +9,9 @@ test("workspace renders the seeded style profile", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Matgo -> Slot playable/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Matgo -> Slot playable/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Prompt revisions" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Reference assets" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Candidate image" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Source evidence" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Candidate stage" })).toBeVisible();
+  await expect(page.getByText("Secondary memory")).toBeVisible();
 });
 
 test("workspace shows a recoverable evaluation error", async ({ page }) => {
@@ -88,6 +89,7 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await page.goto("/workspace");
   await page.getByRole("button", { name: /Korean card game casino remix/ }).click();
 
+  await page.getByText("New context").click();
   await page.getByLabel("Context name").fill(contextName);
   await page.getByLabel("Generation goal").fill("Generate reusable emotion poses for the same character.");
   await page.getByLabel("Source prompt").fill("캐릭터 이미지를 각 감정별로 생성해줘.");
@@ -100,14 +102,14 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await page.getByLabel("Context source note").fill("Reference used for this emotion generation batch.");
   await page.getByTestId("context-source-file-input").setInputFiles(sourceAsset);
   await expect(page.getByText("Context source asset saved.")).toBeVisible();
-  await expect(page.getByText("context_upload")).toBeVisible();
+  await expect(page.getByText("Uploaded for this context")).toBeVisible();
 
   await page.getByLabel("Candidate prompt").fill("Nervous emotion pose, same character, transparent-friendly composition.");
   await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
   await expect(page.getByText("Candidate image saved.")).toBeVisible();
   await expect(page.getByAltText("Current candidate")).toBeVisible();
   const revisionRow = page.getByRole("option", {
-    name: /unknown.*1 candidate.*Nervous emotion pose, same character, transparent-friendly composition/i
+    name: /Base.*1 candidate.*Nervous emotion pose, same character, transparent-friendly composition/i
   });
   await expect(revisionRow).toBeVisible();
   await expect(revisionRow).toHaveAttribute("aria-current", "true");
@@ -119,7 +121,7 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await expect(page.getByText("Draft evaluation saved.")).toBeVisible();
   await expect(page.getByText("profile_fit · 78")).toBeVisible();
   await expect(page.getByText("source_asset_match · 72")).toBeVisible();
-  await page.getByRole("button", { name: "New child" }).click();
+  await page.getByRole("button", { name: "Follow-up" }).click();
   await page.getByText("Revision metadata").click();
   await expect(page.getByLabel("Source guidance").locator("option")).toHaveCount(1);
 
@@ -128,6 +130,7 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await page.getByRole("button", { name: "Save", exact: true }).click();
 
   await expect(page.getByText("Judgment saved to creative memory.")).toBeVisible();
+  await page.getByText("Secondary memory").click();
   await expect(page.getByText("1 saved judgments")).toBeVisible();
   await expect(page.getByRole("button", { name: new RegExp(`${contextName}.*needs_edit`, "i") })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create next revision" })).toBeVisible();
@@ -135,13 +138,14 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await expect(page.getByText("Next prompt revision created.")).toBeVisible();
   await expect(
     page.getByRole("option", {
-      name: /next revision.*unknown.*0 candidates.*source.*Keep the same character.*Keep the same character/i
+      name: /next revision.*Unknown.*0 candidates.*Guidance.*Keep the same character.*Keep the same character/i
     })
   ).toBeVisible();
   await expect(page.getByLabel("Candidate prompt")).toHaveValue(/separate the body from the background/);
 
   await revisionRow.click();
-  await page.getByRole("button", { name: "New child" }).click();
+  await page.getByRole("button", { name: "Follow-up" }).click();
+  await expect(page.getByLabel("Parent revision")).toBeVisible();
   if (!(await page.getByLabel("Source guidance").isVisible())) {
     await page.getByText("Revision metadata").click();
   }
@@ -159,7 +163,7 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
   await childUploadResponse;
   const childRevisionRow = page.getByRole("option", {
-    name: /child e2e.*unknown.*1 candidate.*source.*Keep the same character.*Nervous pose child revision with cleaner silhouette/i
+    name: /child e2e.*Unknown.*1 candidate.*Guidance.*Keep the same character.*Nervous pose child revision with cleaner silhouette/i
   });
   await expect(childRevisionRow).toBeVisible();
 
@@ -177,12 +181,14 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await attachUploadResponse;
   await expect(
     page.getByRole("option", {
-      name: /child e2e.*unknown.*2 candidates.*Nervous pose child revision with cleaner silhouette/i
+      name: /child e2e.*Unknown.*2 candidates.*Nervous pose child revision with cleaner silhouette/i
     })
   ).toBeVisible();
   await expect(page.getByTestId("prompt-revision-row")).toHaveCount(rowCountBeforeAttach);
 
-  const rowCountBeforeMissing = await page.getByTestId("prompt-revision-row").count();
+  const promptRevisionSummary = page.locator(".prompt-revision-strip .panel-header .microcopy");
+  await expect(promptRevisionSummary).toHaveText(new RegExp(`3 revisions in ${contextName}`));
+  const revisionSummaryBeforeMissing = await promptRevisionSummary.innerText();
   await page.getByLabel("Prompt missing").check();
   await page.getByLabel("Recovery note").fill("Prompt was lost after export.");
   const missingUploadResponse = page.waitForResponse(
@@ -193,16 +199,19 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   );
   await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
   await missingUploadResponse;
-  await expect(page.getByTestId("prompt-revision-row")).toHaveCount(rowCountBeforeMissing);
+  await expect(promptRevisionSummary).toHaveText(revisionSummaryBeforeMissing);
   await expect(page.locator('[role="option"][aria-current="true"]')).toHaveCount(0);
 
   await page.getByLabel("Prompt missing").uncheck();
-  await expect(page.getByRole("button", { name: "New root" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "New base" })).toBeEnabled();
+  await page.getByRole("button", { name: "New base" }).click();
   await page.getByLabel("Candidate prompt").fill("Invalid parameters prompt.");
   if (!(await page.getByLabel("Parameters JSON").isVisible())) {
     await page.getByText("Revision metadata").click();
   }
-  await page.getByLabel("Parameters JSON").fill("[]");
+  const parametersJsonInput = page.getByLabel("Parameters JSON");
+  await parametersJsonInput.fill("[]");
+  await expect(parametersJsonInput).toHaveValue("[]");
   const rowCountBeforeInvalidParameters = await page.getByTestId("prompt-revision-row").count();
   await page.getByTestId("candidate-file-input").setInputFiles(candidateAsset);
   await expect(page.getByText("Parameters JSON must be a valid JSON object.")).toBeVisible();
@@ -213,7 +222,7 @@ test("workspace creates a context, uploads sources and candidate, evaluates, sav
   await page.getByLabel("Next prompt guidance").fill("");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Judgment saved to creative memory.")).toBeVisible();
-  await page.getByRole("button", { name: "New child" }).click();
+  await page.getByRole("button", { name: "Follow-up" }).click();
   if (!(await page.getByLabel("Source guidance").isVisible())) {
     await page.getByText("Revision metadata").click();
   }
