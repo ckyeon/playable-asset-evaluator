@@ -70,13 +70,26 @@ The AI Character Chat baseline is the first ready dogfood dataset: 8 source asse
 
 ## Local CLI Evaluator
 
-The app uses the mock evaluator by default. To opt into a local subscription-backed evaluator, log in to the CLI first, then start the app with:
+The app uses the local CLI evaluator by default. Log in to the provider CLI first, then start the app:
 
 ```bash
-EVALUATION_ADAPTER=local-cli EVALUATOR_PROVIDER=gemini npm run dev
+npm run dev
 ```
 
-Supported providers are `gemini` and `codex`. Live evaluator checks are explicit so normal tests never spend quota.
+`gemini` is the default provider. To use Codex instead:
+
+```bash
+EVALUATOR_PROVIDER=codex npm run dev
+```
+
+To run the workspace without spending CLI quota, opt into the mock evaluator:
+
+```bash
+EVALUATION_ADAPTER=mock npm run dev
+```
+
+Supported providers are `gemini` and `codex`. Live evaluator checks are explicit, and the automated test helpers force
+the mock adapter so normal tests never spend quota.
 They run the AI Character Chat baseline as a strict regression gate:
 
 ```bash

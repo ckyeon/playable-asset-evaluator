@@ -56,7 +56,7 @@ export function resolveEvaluationRunnerConfig(env: EvaluatorEnv = process.env): 
 }
 
 function resolveAdapterName(value: string | undefined): EvaluationRunnerConfig["adapterName"] {
-  const normalized = value?.trim() || "mock";
+  const normalized = value?.trim() || "local-cli";
   if (normalized === "mock" || normalized === "local-cli") {
     return normalized;
   }

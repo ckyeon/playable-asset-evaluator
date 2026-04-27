@@ -72,8 +72,9 @@ describe("EvaluationRunner", () => {
     expect(subset.weakReferenceSet).toBe(true);
   });
 
-  it("selects the mock adapter by default and local CLI when configured", () => {
-    expect(createModelAdapterFromEnv({})).toBeInstanceOf(MockEvaluationAdapter);
+  it("selects the local CLI adapter by default and mock when configured", () => {
+    expect(createModelAdapterFromEnv({})).toBeInstanceOf(LocalCliEvaluationAdapter);
+    expect(createModelAdapterFromEnv({ EVALUATION_ADAPTER: "mock" })).toBeInstanceOf(MockEvaluationAdapter);
     expect(createModelAdapterFromEnv({ EVALUATION_ADAPTER: "local-cli" })).toBeInstanceOf(LocalCliEvaluationAdapter);
     expect(() => createModelAdapterFromEnv({ EVALUATION_ADAPTER: "remote" })).toThrow(
       "EVALUATION_ADAPTER must be 'mock' or 'local-cli'."
@@ -84,8 +85,15 @@ describe("EvaluationRunner", () => {
   });
 
   it("resolves evaluator model name and timeout config with legacy fallback", () => {
-    expect(resolveEvaluationRunnerConfig({}).modelName).toBe("mock-evaluator-v1");
-    expect(resolveEvaluationRunnerConfig({ EVALUATION_MODEL: "legacy-model" }).modelName).toBe("legacy-model");
+    expect(resolveEvaluationRunnerConfig({})).toMatchObject({
+      adapterName: "local-cli",
+      provider: "gemini",
+      modelName: "gemini-cli"
+    });
+    expect(resolveEvaluationRunnerConfig({ EVALUATION_ADAPTER: "mock" }).modelName).toBe("mock-evaluator-v1");
+    expect(resolveEvaluationRunnerConfig({ EVALUATION_ADAPTER: "mock", EVALUATION_MODEL: "legacy-model" }).modelName).toBe(
+      "legacy-model"
+    );
     expect(
       resolveEvaluationRunnerConfig({
         EVALUATION_ADAPTER: "local-cli",

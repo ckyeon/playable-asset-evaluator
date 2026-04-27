@@ -7,6 +7,7 @@ import { closeDbForTests } from "@/lib/db/client";
 export function useTempDataDir(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "asset-evaluator-test-"));
   process.env.ASSET_EVALUATOR_DATA_DIR = dir;
+  process.env.EVALUATION_ADAPTER = "mock";
   closeDbForTests();
   return dir;
 }
