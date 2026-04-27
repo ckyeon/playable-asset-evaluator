@@ -251,6 +251,7 @@ button {
 .textarea,
 .select {
   width: 100%;
+  min-height: 44px;
   border: 1px solid var(--border);
   background: var(--raised);
   color: var(--text);
@@ -294,7 +295,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 36px;
+  min-height: 44px;
   padding: 8px 12px;
   border-radius: 6px;
   background: var(--accent);
@@ -337,8 +338,8 @@ button {
 }
 
 .icon-button {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   padding: 0;
 }
 
@@ -650,8 +651,8 @@ button {
 .small-icon-button {
   display: inline-grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 44px;
+  height: 44px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
@@ -725,7 +726,7 @@ button {
 }
 
 .segment-button {
-  min-height: 30px;
+  min-height: 44px;
   border-radius: 4px;
   background: transparent;
   color: var(--muted);
