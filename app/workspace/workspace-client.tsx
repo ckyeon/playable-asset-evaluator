@@ -6,10 +6,9 @@ import {
   CandidatePanel,
   ContextSidebar,
   ContextSourceAssets,
-  HistoryPanel,
   JudgmentPanel,
   PromptRevisionStrip,
-  ReferenceAssetsPanel
+  SecondaryMemoryPanel
 } from "./workspace-components";
 import type {
   Candidate,
@@ -287,6 +286,8 @@ export function WorkspaceClient() {
     setPromptMissing(value);
     if (value) {
       resetRevisionAuthoring();
+    } else {
+      setRevisionUploadMode("new_root");
     }
   }
 
@@ -571,6 +572,7 @@ export function WorkspaceClient() {
       if (selectedProfileId) {
         await loadDetail(selectedProfileId);
       }
+      setDraft(null);
     } catch (error) {
       setStatus({ kind: "error", text: error instanceof Error ? error.message : "Failed to save judgment." });
     } finally {
@@ -677,8 +679,13 @@ export function WorkspaceClient() {
     }
   }
 
-  const activeEvaluation = draft?.evaluation;
-  const activeCriteria = draft?.criteria || [];
+  const currentHistoryItem = useMemo(
+    () => (currentCandidate ? history.find((item) => item.candidate.id === currentCandidate.id) || null : null),
+    [currentCandidate, history]
+  );
+  const latestStoredEvaluation = currentHistoryItem?.evaluations[0] || null;
+  const activeEvaluation = draft?.evaluation || latestStoredEvaluation || undefined;
+  const activeCriteria = draft?.criteria || latestStoredEvaluation?.criteria || [];
 
   return (
     <main className="workspace">
@@ -733,12 +740,6 @@ export function WorkspaceClient() {
           <div className="stack">
             <ActiveContextHeader activeContext={activeContext} profile={detail?.profile} selectedProfileId={selectedProfileId} />
 
-            <PromptRevisionStrip
-              activeContext={activeContext}
-              selectedPromptRevisionId={selectedPromptRevisionId}
-              onSelectRevision={selectPromptRevision}
-            />
-
             <ContextSourceAssets
               activeContext={activeContext}
               sourceInputRef={sourceInputRef}
@@ -750,62 +751,71 @@ export function WorkspaceClient() {
               onUploadContextSources={uploadContextSources}
             />
 
-            <div className="comparison-grid">
-              <ReferenceAssetsPanel
-                detail={detail}
-                referenceInputRef={referenceInputRef}
-                referenceType={referenceType}
-                referenceNote={referenceNote}
-                activeContext={activeContext}
-                busy={busy}
-                onReferenceTypeChange={setReferenceType}
-                onReferenceNoteChange={setReferenceNote}
-                onUploadReferences={uploadReferences}
-                onAddProfileReferenceToContext={addProfileReferenceToContext}
-                onDeleteReferenceAsset={deleteReferenceAsset}
-              />
+            <CandidatePanel
+              currentCandidate={currentCandidate}
+              candidates={activeContextCandidates}
+              history={history}
+              draft={draft}
+              candidateInputRef={candidateInputRef}
+              promptText={promptText}
+              promptMissing={promptMissing}
+              recoveryNote={recoveryNote}
+              generationTool={generationTool}
+              promptRevisions={activePromptRevisions}
+              selectedPromptRevisionId={selectedPromptRevisionId}
+              revisionUploadMode={revisionUploadMode}
+              parentPromptRevisionId={parentPromptRevisionId}
+              attachPromptRevisionId={attachPromptRevisionId}
+              revisionLabel={revisionLabel}
+              revisionNote={revisionNote}
+              negativePrompt={negativePrompt}
+              parametersJson={parametersJson}
+              sourceGuidanceOptions={activeSourceGuidanceOptions}
+              sourceGuidanceId={sourceGuidanceId}
+              busy={busy}
+              onPromptTextChange={setPromptText}
+              onPromptMissingChange={handlePromptMissingChange}
+              onRecoveryNoteChange={setRecoveryNote}
+              onGenerationToolChange={setGenerationTool}
+              onRevisionUploadModeChange={setRevisionUploadMode}
+              onParentPromptRevisionIdChange={setParentPromptRevisionId}
+              onAttachPromptRevisionIdChange={setAttachPromptRevisionId}
+              onRevisionLabelChange={setRevisionLabel}
+              onRevisionNoteChange={setRevisionNote}
+              onNegativePromptChange={setNegativePrompt}
+              onParametersJsonChange={setParametersJson}
+              onSourceGuidanceIdChange={setSourceGuidanceId}
+              onSelectCandidate={selectCandidate}
+              onUploadCandidate={(file) =>
+                uploadCandidate(file).catch((error) =>
+                  setStatus({ kind: "error", text: error instanceof Error ? error.message : "Upload failed." })
+                )
+              }
+              onDeleteCurrentCandidate={deleteCurrentCandidate}
+            />
 
-              <CandidatePanel
-                currentCandidate={currentCandidate}
-                candidateInputRef={candidateInputRef}
-                promptText={promptText}
-                promptMissing={promptMissing}
-                recoveryNote={recoveryNote}
-                generationTool={generationTool}
-                promptRevisions={activePromptRevisions}
-                selectedPromptRevisionId={selectedPromptRevisionId}
-                revisionUploadMode={revisionUploadMode}
-                parentPromptRevisionId={parentPromptRevisionId}
-                attachPromptRevisionId={attachPromptRevisionId}
-                revisionLabel={revisionLabel}
-                revisionNote={revisionNote}
-                negativePrompt={negativePrompt}
-                parametersJson={parametersJson}
-                sourceGuidanceOptions={activeSourceGuidanceOptions}
-                sourceGuidanceId={sourceGuidanceId}
-                busy={busy}
-                onPromptTextChange={setPromptText}
-                onPromptMissingChange={handlePromptMissingChange}
-                onRecoveryNoteChange={setRecoveryNote}
-                onGenerationToolChange={setGenerationTool}
-                onRevisionUploadModeChange={setRevisionUploadMode}
-                onParentPromptRevisionIdChange={setParentPromptRevisionId}
-                onAttachPromptRevisionIdChange={setAttachPromptRevisionId}
-                onRevisionLabelChange={setRevisionLabel}
-                onRevisionNoteChange={setRevisionNote}
-                onNegativePromptChange={setNegativePrompt}
-                onParametersJsonChange={setParametersJson}
-                onSourceGuidanceIdChange={setSourceGuidanceId}
-                onUploadCandidate={(file) =>
-                  uploadCandidate(file).catch((error) =>
-                    setStatus({ kind: "error", text: error instanceof Error ? error.message : "Upload failed." })
-                  )
-                }
-                onDeleteCurrentCandidate={deleteCurrentCandidate}
-              />
-            </div>
+            <PromptRevisionStrip
+              activeContext={activeContext}
+              selectedPromptRevisionId={selectedPromptRevisionId}
+              onSelectRevision={selectPromptRevision}
+            />
 
-            <HistoryPanel history={history} savedEvaluationCount={savedEvaluations.length} onSelectCandidate={selectCandidate} />
+            <SecondaryMemoryPanel
+              detail={detail}
+              referenceInputRef={referenceInputRef}
+              referenceType={referenceType}
+              referenceNote={referenceNote}
+              activeContext={activeContext}
+              busy={busy}
+              onReferenceTypeChange={setReferenceType}
+              onReferenceNoteChange={setReferenceNote}
+              onUploadReferences={uploadReferences}
+              onAddProfileReferenceToContext={addProfileReferenceToContext}
+              onDeleteReferenceAsset={deleteReferenceAsset}
+              history={history}
+              savedEvaluationCount={savedEvaluations.length}
+              onSelectCandidate={selectCandidate}
+            />
           </div>
         </section>
 

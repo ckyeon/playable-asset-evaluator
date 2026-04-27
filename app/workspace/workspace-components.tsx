@@ -132,83 +132,97 @@ export function ContextSidebar({
 
       {detail ? (
         <section className="sidebar-section create-context" aria-labelledby="new-context-heading">
-          <h2 id="new-context-heading" className="section-title">
-            New context
-          </h2>
-          <label className="field-label" htmlFor="context-name">
-            Context name
-          </label>
-          <input
-            id="context-name"
-            className="input"
-            value={newContextName}
-            onChange={(event) => onNewContextNameChange(event.target.value)}
-            placeholder="Emotion batch 01"
-          />
-          <label className="field-label" htmlFor="generation-goal">
-            Generation goal
-          </label>
-          <textarea
-            id="generation-goal"
-            className="textarea compact-textarea"
-            value={generationGoal}
-            onChange={(event) => onGenerationGoalChange(event.target.value)}
-            placeholder="Reusable emotion poses"
-          />
-          <label className="field-label" htmlFor="context-source-prompt">
-            Source prompt
-          </label>
-          <textarea
-            id="context-source-prompt"
-            className="textarea compact-textarea"
-            value={contextPrompt}
-            onChange={(event) => onContextPromptChange(event.target.value)}
-            placeholder="Prompt used for this generation batch"
-          />
-          <div className="form-row single-column">
-            <select
-              className="select"
-              aria-label="Context asset focus"
-              value={sourceType}
-              onChange={(event) => onSourceTypeChange(event.target.value)}
-            >
-              {assetTypes.map(([value, label]) => (
-                <option value={value} key={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <input
-              className="input"
-              aria-label="Generation tool"
-              value={generationTool}
-              onChange={(event) => onGenerationToolChange(event.target.value)}
-              placeholder="Generation tool"
-            />
-          </div>
-          <button className="button secondary" onClick={onCreateContext} disabled={busy === "context"}>
-            <Save size={16} aria-hidden /> Create context
-          </button>
+          <details className="sidebar-create">
+            <summary>
+              <span id="new-context-heading" className="section-title">
+                New context
+              </span>
+              <span className="summary-action">+</span>
+            </summary>
+            <div className="sidebar-create-fields">
+              <label className="field-label" htmlFor="context-name">
+                Context name
+              </label>
+              <input
+                id="context-name"
+                className="input"
+                value={newContextName}
+                onChange={(event) => onNewContextNameChange(event.target.value)}
+                placeholder="Emotion batch 01"
+              />
+              <label className="field-label" htmlFor="generation-goal">
+                Generation goal
+              </label>
+              <textarea
+                id="generation-goal"
+                className="textarea compact-textarea"
+                value={generationGoal}
+                onChange={(event) => onGenerationGoalChange(event.target.value)}
+                placeholder="Reusable emotion poses"
+              />
+              <label className="field-label" htmlFor="context-source-prompt">
+                Source prompt
+              </label>
+              <textarea
+                id="context-source-prompt"
+                className="textarea compact-textarea"
+                value={contextPrompt}
+                onChange={(event) => onContextPromptChange(event.target.value)}
+                placeholder="Prompt used for this generation batch"
+              />
+              <div className="form-row single-column">
+                <select
+                  className="select"
+                  aria-label="Context asset focus"
+                  value={sourceType}
+                  onChange={(event) => onSourceTypeChange(event.target.value)}
+                >
+                  {assetTypes.map(([value, label]) => (
+                    <option value={value} key={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="input"
+                  aria-label="Generation tool"
+                  value={generationTool}
+                  onChange={(event) => onGenerationToolChange(event.target.value)}
+                  placeholder="Generation tool"
+                />
+              </div>
+              <button className="button secondary" onClick={onCreateContext} disabled={busy === "context"}>
+                <Save size={16} aria-hidden /> Create context
+              </button>
+            </div>
+          </details>
         </section>
       ) : null}
 
       <section className="sidebar-section create-profile" aria-labelledby="new-profile-heading">
-        <h2 id="new-profile-heading" className="section-title">
-          New profile
-        </h2>
-        <label className="field-label" htmlFor="profile-name">
-          Profile name
-        </label>
-        <input
-          id="profile-name"
-          className="input"
-          value={newProfileName}
-          onChange={(event) => onNewProfileNameChange(event.target.value)}
-          placeholder="Puzzle reward bright casual"
-        />
-        <button className="button secondary" onClick={onCreateProfile} disabled={busy === "profile"}>
-          <Save size={16} aria-hidden /> Create
-        </button>
+        <details className="sidebar-create">
+          <summary>
+            <span id="new-profile-heading" className="section-title">
+              New profile
+            </span>
+            <span className="summary-action">+</span>
+          </summary>
+          <div className="sidebar-create-fields">
+            <label className="field-label" htmlFor="profile-name">
+              Profile name
+            </label>
+            <input
+              id="profile-name"
+              className="input"
+              value={newProfileName}
+              onChange={(event) => onNewProfileNameChange(event.target.value)}
+              placeholder="Puzzle reward bright casual"
+            />
+            <button className="button secondary" onClick={onCreateProfile} disabled={busy === "profile"}>
+              <Save size={16} aria-hidden /> Create
+            </button>
+          </div>
+        </details>
       </section>
     </aside>
   );
@@ -363,12 +377,12 @@ export function PromptRevisionStrip({ activeContext, selectedPromptRevisionId, o
             <span>{parentSummary(revision, tree.revisionById)}</span>
           </span>
           <span className={effectivenessClassName(revision)} title={revision.effectiveness_reason.replaceAll("_", " ")}>
-            {revision.effectiveness}
+            {effectivenessLabel(revision)}
           </span>
           <span className="revision-count">{candidateCountLabel(revision.candidate_count)}</span>
           {revision.sourceGuidance ? (
             <span className="revision-source" title={revision.sourceGuidance.guidance_text}>
-              <span className="source-pill">source</span>
+              <span className="source-pill">Guidance</span>
               <span className="source-preview">{guidancePreview(revision.sourceGuidance.guidance_text)}</span>
             </span>
           ) : (
@@ -563,10 +577,10 @@ function guidanceOptionLabel(guidance: SourceGuidanceOption): string {
 
 function parentSummary(revision: PromptRevision, revisionById: Map<string, PromptRevision>): string {
   if (!revision.parent_prompt_revision_id) {
-    return "root";
+    return "Base attempt";
   }
   const parent = revisionById.get(revision.parent_prompt_revision_id);
-  return parent ? `child of ${revisionTitle(parent)}` : "missing parent";
+  return parent ? `Follow-up from ${revisionTitle(parent)}` : "Missing parent";
 }
 
 function effectivenessClassName(revision: PromptRevision): string {
@@ -576,6 +590,16 @@ function effectivenessClassName(revision: PromptRevision): string {
 
 function candidateCountLabel(count: number): string {
   return `${count} candidate${count === 1 ? "" : "s"}`;
+}
+
+function effectivenessLabel(revision: PromptRevision): string {
+  if (revision.effectiveness === "unknown" && revision.effectiveness_reason === "root_revision") {
+    return "Base";
+  }
+  if (revision.effectiveness === "unknown") {
+    return "Unknown";
+  }
+  return revision.effectiveness.replace("_", " ");
 }
 
 function promptPreview(prompt: string): string {
@@ -621,10 +645,10 @@ export function ContextSourceAssets({
   onUploadContextSources
 }: ContextSourceAssetsProps) {
   return (
-    <section className="panel" aria-labelledby="context-source-assets-heading">
+    <section className="panel source-evidence-panel" aria-labelledby="context-source-assets-heading">
       <div className="panel-header">
         <div>
-          <h2 id="context-source-assets-heading">Context source assets</h2>
+          <h2 id="context-source-assets-heading">Source evidence</h2>
           <div className="microcopy">Assets actually used for this generation context.</div>
         </div>
         <button
@@ -637,7 +661,7 @@ export function ContextSourceAssets({
           <Upload size={16} aria-hidden />
         </button>
       </div>
-      <div className="form-row" style={{ marginTop: 12 }}>
+      <div className="source-upload-row" style={{ marginTop: 12 }}>
         <select className="select" value={sourceType} onChange={(event) => onSourceTypeChange(event.target.value)}>
           {assetTypes.map(([value, label]) => (
             <option value={value} key={value}>
@@ -662,15 +686,15 @@ export function ContextSourceAssets({
         multiple
         onChange={(event) => onUploadContextSources(event.target.files)}
       />
-      <div className="reference-grid">
+      <div className="source-strip" aria-label="Source evidence assets">
         {activeContext?.sourceAssets.map((asset) => (
-          <div className="asset-tile" key={asset.id}>
-            <div className="asset-thumb">
+          <div className="source-tile" key={asset.id}>
+            <div className="source-thumb">
               {asset.imageUrl ? <img src={asset.imageUrl} alt={asset.snapshot_note || asset.asset_type} /> : null}
             </div>
-            <div className="asset-meta">
-              <strong>{asset.origin}</strong>
-              <div>{asset.snapshot_note || asset.asset_type}</div>
+            <div className="source-meta">
+              <strong>{originLabel(asset.origin)}</strong>
+              <span>{asset.snapshot_note || asset.asset_type}</span>
             </div>
           </div>
         ))}
@@ -680,6 +704,10 @@ export function ContextSourceAssets({
       </div>
     </section>
   );
+}
+
+function originLabel(origin: "profile_reference" | "context_upload"): string {
+  return origin === "profile_reference" ? "From profile" : "Uploaded for this context";
 }
 
 interface ReferenceAssetsPanelProps {
@@ -789,6 +817,9 @@ export function ReferenceAssetsPanel({
 
 interface CandidatePanelProps {
   currentCandidate: Candidate | null;
+  candidates: Candidate[];
+  history: HistoryItem[];
+  draft: Draft | null;
   candidateInputRef: RefObject<HTMLInputElement | null>;
   promptText: string;
   promptMissing: boolean;
@@ -818,12 +849,16 @@ interface CandidatePanelProps {
   onNegativePromptChange: (value: string) => void;
   onParametersJsonChange: (value: string) => void;
   onSourceGuidanceIdChange: (value: string | null) => void;
+  onSelectCandidate: (candidate: Candidate) => void;
   onUploadCandidate: (file: File) => void;
   onDeleteCurrentCandidate: () => void;
 }
 
 export function CandidatePanel({
   currentCandidate,
+  candidates,
+  history,
+  draft,
   candidateInputRef,
   promptText,
   promptMissing,
@@ -853,6 +888,7 @@ export function CandidatePanel({
   onNegativePromptChange,
   onParametersJsonChange,
   onSourceGuidanceIdChange,
+  onSelectCandidate,
   onUploadCandidate,
   onDeleteCurrentCandidate
 }: CandidatePanelProps) {
@@ -872,9 +908,12 @@ export function CandidatePanel({
   const displayedPromptText = isAttachMode ? targetAttachRevision?.prompt_text || "" : promptText;
 
   return (
-    <section className="panel" aria-labelledby="candidate-image-heading">
+    <section className="panel candidate-panel" aria-labelledby="candidate-image-heading">
       <div className="panel-header">
-        <h2 id="candidate-image-heading">Candidate image</h2>
+        <div>
+          <h2 id="candidate-image-heading">Candidate stage</h2>
+          <div className="microcopy">{candidates.length} candidates in this context</div>
+        </div>
         <div className="toolbar">
           {currentCandidate ? (
             <button
@@ -910,20 +949,29 @@ export function CandidatePanel({
           }
         }}
       />
-      <div style={{ marginTop: 12 }}>
-        {currentCandidate?.originalUrl ? (
-          <div className="candidate-viewer">
-            <img src={currentCandidate.originalUrl} alt="Current candidate" />
-          </div>
-        ) : (
-          <div className="candidate-drop">
-            <div>
-              <Clipboard size={28} aria-hidden />
-              <p>Paste an image or upload a candidate.</p>
-              <p className="microcopy">PNG, JPEG, and WebP. SVG is blocked in v1.</p>
+      <div className="candidate-stage">
+        <div className="candidate-primary">
+          {currentCandidate?.originalUrl ? (
+            <div className="candidate-viewer">
+              <img src={currentCandidate.originalUrl} alt="Current candidate" />
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="candidate-drop">
+              <div>
+                <Clipboard size={28} aria-hidden />
+                <p>Paste an image or upload a candidate.</p>
+                <p className="microcopy">PNG, JPEG, and WebP. SVG is blocked in v1.</p>
+              </div>
+            </div>
+          )}
+        </div>
+        <CandidateQueue
+          candidates={candidates}
+          currentCandidate={currentCandidate}
+          history={history}
+          draft={draft}
+          onSelectCandidate={onSelectCandidate}
+        />
       </div>
       <div className="candidate-actions" style={{ marginTop: 12 }}>
         <label className="field-label" htmlFor="candidate-prompt">
@@ -939,7 +987,7 @@ export function CandidatePanel({
               return;
             }
             onPromptTextChange(event.target.value);
-            if (event.target.value.trim()) {
+            if (promptMissing && event.target.value.trim()) {
               onPromptMissingChange(false);
             }
           }}
@@ -966,7 +1014,7 @@ export function CandidatePanel({
               type="button"
               onClick={() => onRevisionUploadModeChange("new_root")}
             >
-              New root
+              New base
             </button>
             <button
               className={`segment-button ${revisionUploadMode === "new_child" ? "is-active" : ""}`}
@@ -974,7 +1022,7 @@ export function CandidatePanel({
               disabled={!hasRevisions}
               onClick={() => onRevisionUploadModeChange("new_child")}
             >
-              New child
+              Follow-up
             </button>
             <button
               className={`segment-button ${revisionUploadMode === "attach_existing" ? "is-active" : ""}`}
@@ -1095,6 +1143,75 @@ export function CandidatePanel({
   );
 }
 
+interface CandidateQueueProps {
+  candidates: Candidate[];
+  currentCandidate: Candidate | null;
+  history: HistoryItem[];
+  draft: Draft | null;
+  onSelectCandidate: (candidate: Candidate) => void;
+}
+
+function CandidateQueue({ candidates, currentCandidate, history, draft, onSelectCandidate }: CandidateQueueProps) {
+  return (
+    <div className="candidate-queue" aria-label="Candidate queue">
+      <div className="candidate-queue-header">
+        <strong>Candidate queue</strong>
+        <span>{candidates.length}</span>
+      </div>
+      <div className="candidate-queue-list" role="list">
+        {candidates.map((candidate, index) => {
+          const state = candidateEvaluationState(candidate, history, draft, currentCandidate);
+          const active = candidate.id === currentCandidate?.id;
+          const title = candidate.promptRevision?.revision_label || candidate.prompt_text || `Candidate ${index + 1}`;
+          return (
+            <button
+              className={`candidate-queue-row ${active ? "is-active" : ""}`}
+              key={candidate.id}
+              onClick={() => onSelectCandidate(candidate)}
+              aria-current={active ? "true" : undefined}
+            >
+              <span className="candidate-queue-thumb">
+                {candidate.imageUrl ? <img src={candidate.imageUrl} alt="" /> : <FileImage size={18} aria-hidden />}
+              </span>
+              <span className="candidate-queue-main">
+                <strong>{title}</strong>
+                <span>{candidate.prompt_missing === 1 ? "Prompt missing" : candidate.promptRevision ? "Linked to prompt" : "No revision"}</span>
+              </span>
+              <span className={`state-badge state-badge--${state.kind}`}>{state.label}</span>
+              {state.score !== null ? <span className="candidate-queue-score">{state.score}</span> : null}
+            </button>
+          );
+        })}
+        {candidates.length === 0 ? <div className="status compact-status">Upload or paste the first candidate for this context.</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function candidateEvaluationState(
+  candidate: Candidate,
+  history: HistoryItem[],
+  draft: Draft | null,
+  currentCandidate: Candidate | null
+): { kind: "unevaluated" | "draft" | "saved" | "failed"; label: string; score: number | null } {
+  if (candidate.id === currentCandidate?.id && draft?.evaluation) {
+    return { kind: "draft", label: "Draft", score: draft.evaluation.fit_score };
+  }
+
+  const evaluations = history.find((item) => item.candidate.id === candidate.id)?.evaluations || [];
+  const latest = evaluations[0] || null;
+  if (!latest) {
+    return { kind: "unevaluated", label: "Unevaluated", score: null };
+  }
+  if (latest.evaluation_state === "saved") {
+    return { kind: "saved", label: "Saved", score: latest.fit_score };
+  }
+  if (latest.evaluation_state === "draft") {
+    return { kind: "draft", label: "Draft", score: latest.fit_score };
+  }
+  return { kind: "failed", label: "Failed", score: latest.fit_score };
+}
+
 interface HistoryPanelProps {
   history: HistoryItem[];
   savedEvaluationCount: number;
@@ -1130,6 +1247,26 @@ export function HistoryPanel({ history, savedEvaluationCount, onSelectCandidate 
         {history.length === 0 ? <div className="status">No candidates saved yet.</div> : null}
       </div>
     </section>
+  );
+}
+
+interface SecondaryMemoryPanelProps extends ReferenceAssetsPanelProps, HistoryPanelProps {}
+
+export function SecondaryMemoryPanel(props: SecondaryMemoryPanelProps) {
+  return (
+    <details className="panel secondary-memory" aria-labelledby="secondary-memory-heading">
+      <summary>
+        <span>
+          <strong id="secondary-memory-heading">Secondary memory</strong>
+          <span className="microcopy">Profile references and saved judgment history</span>
+        </span>
+        <span className="summary-action">Open</span>
+      </summary>
+      <div className="secondary-memory-grid">
+        <ReferenceAssetsPanel {...props} />
+        <HistoryPanel history={props.history} savedEvaluationCount={props.savedEvaluationCount} onSelectCandidate={props.onSelectCandidate} />
+      </div>
+    </details>
   );
 }
 
@@ -1192,7 +1329,10 @@ export function JudgmentPanel({
           <div className="score-box">
             <div className="score-number">{activeEvaluation.fit_score}</div>
             <div>
-              <strong>{activeEvaluation.decision_label}</strong>
+              <span className={`state-badge state-badge--${activeEvaluation.evaluation_state}`}>
+                {evaluationStateLabel(activeEvaluation.evaluation_state)}
+              </span>
+              <strong className={`decision-${activeEvaluation.decision_label}`}>{decisionLabelText(activeEvaluation.decision_label)}</strong>
               <p className="microcopy">{activeEvaluation.ai_summary}</p>
             </div>
           </div>
@@ -1281,4 +1421,21 @@ export function JudgmentPanel({
       </div>
     </aside>
   );
+}
+
+function evaluationStateLabel(state: Evaluation["evaluation_state"]): string {
+  if (state === "saved") {
+    return "Saved";
+  }
+  if (state === "failed") {
+    return "Failed";
+  }
+  return "Draft";
+}
+
+function decisionLabelText(label: DecisionLabel): string {
+  if (label === "needs_edit") {
+    return "Needs edit";
+  }
+  return label === "good" ? "Good" : "Reject";
 }

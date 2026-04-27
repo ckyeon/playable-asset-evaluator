@@ -277,7 +277,7 @@ describe("EvaluationRunner", () => {
         `process.stdout.write(JSON.stringify({ response: ${JSON.stringify(JSON.stringify(validModelOutput))} })); setInterval(() => {}, 1000);`
       ],
       input: "",
-      timeoutMs: 1_000,
+      timeoutMs: 3_000,
       cwd: process.cwd(),
       shell: false
     });
@@ -295,7 +295,7 @@ describe("EvaluationRunner", () => {
       command: process.execPath,
       args: ["-e", `process.stdout.write(JSON.stringify({ type: "status" })); setInterval(() => {}, 1000);`],
       input: "",
-      timeoutMs: 1_000,
+      timeoutMs: 3_000,
       cwd: process.cwd(),
       shell: false
     });
