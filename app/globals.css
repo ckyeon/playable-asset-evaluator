@@ -78,7 +78,7 @@ button {
 
 .workspace-shell {
   display: grid;
-  grid-template-columns: 280px minmax(520px, 1fr) 380px;
+  grid-template-columns: clamp(240px, 21vw, 280px) minmax(0, 1fr) clamp(320px, 28vw, 380px);
   min-height: 100vh;
 }
 
@@ -105,6 +105,7 @@ button {
   padding: 18px;
   overflow-y: auto;
   max-height: 100vh;
+  min-width: 0;
 }
 
 .brand-row,
@@ -344,6 +345,7 @@ button {
 .stack {
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .active-context-header h2 {
@@ -394,10 +396,11 @@ button {
 
 .prompt-revision-row {
   display: grid;
-  grid-template-columns: 34px minmax(130px, 0.85fr) max-content 96px minmax(120px, 0.8fr) minmax(180px, 1.35fr) max-content;
+  grid-template-columns: 28px minmax(100px, 0.85fr) max-content minmax(64px, 80px) minmax(90px, 0.8fr) minmax(120px, 1.35fr) max-content;
   align-items: center;
   gap: 10px;
   min-height: 52px;
+  min-width: 0;
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -584,12 +587,18 @@ button {
   border-radius: 8px;
   padding: 14px;
   box-shadow: var(--shadow);
+  min-width: 0;
 }
 
 .comparison-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.05fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
   gap: 14px;
+  min-width: 0;
+}
+
+.comparison-grid > * {
+  min-width: 0;
 }
 
 .reference-grid {
