@@ -64,6 +64,8 @@ npm run typecheck
 npm run eval:test
 npm run test:integration
 npm run test
+npm run test:e2e
+npm run build
 ```
 
 The AI Character Chat baseline is the first ready dogfood dataset: 8 source assets, 10 candidates, and 10 saved judgments.
